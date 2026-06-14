@@ -9,10 +9,12 @@ import {
   getResources,
   getAccessMap,
   getStudents,
+  getStudyTracking,
   getUserProfile,
   hasExamAccess,
   listenToAuth,
   saveUserProfile,
+  saveStudyTracking,
   signOutUser
 } from "./services/dataService.js";
 
@@ -325,11 +327,14 @@ function StudentDeskPage() {
   const [exam, setExam] = useState(exams[0]);
   const [profile, setProfile] = useState({});
   const [profileMessage, setProfileMessage] = useState("");
+  const [deskView, setDeskView] = useState("dashboard");
+  const [tracking, setTracking] = useState(getStudyTracking(""));
 
   useEffect(() => {
     listenToAuth((nextUser) => {
       setUser(nextUser);
       setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {});
+      setTracking(nextUser?.email ? getStudyTracking(nextUser.email) : getStudyTracking(""));
     });
     refreshResources();
   }, []);
@@ -350,6 +355,8 @@ function StudentDeskPage() {
   const unlockedResources = resources.filter((item) => !item.premium || hasExamAccess(user, item.exam)).length;
   const premiumResources = resources.filter((item) => item.premium).length;
   const studentName = profile.name || user?.displayName || user?.email?.split("@")[0] || "Guest Student";
+  const todayPercent = Math.min(100, Math.round((Number(tracking.completedHours || 0) / Number(tracking.targetHours || 1)) * 100));
+  const averageWeeklyHours = Math.round((tracking.weeklyHours.reduce((sum, item) => sum + Number(item || 0), 0) / tracking.weeklyHours.length) * 10) / 10;
 
   function updateProfile(field, value) {
     setProfile((current) => ({ ...current, [field]: value }));
@@ -373,36 +380,19 @@ function StudentDeskPage() {
     reader.readAsDataURL(file);
   }
 
+  function updateTracking(field, value) {
+    const next = { ...tracking, [field]: Number(value) };
+    setTracking(next);
+    if (user?.email) saveStudyTracking(user.email, next);
+  }
+
   return (
     <>
       <Header user={user} onAuth={setAuthMode} onLogout={logout} />
       <main className="desk-page">
-        <section className="section desk-hero-section" id="student-desk">
-          <div className="desk-hero">
-            <div className="section-heading">
-              <p className="eyebrow">Student Desk</p>
-              <h1 className="page-title">Your study dashboard</h1>
-              <p>Track exam access, daily resources, study targets, and profile details from one focused workspace.</p>
-            </div>
-            {!isAdminUser && (
-              <div className="desk-stats">
-                <article className="stat-card">
-                  <span>Active Plans</span>
-                  <strong>{activeExams.length}</strong>
-                </article>
-                <article className="stat-card">
-                  <span>Unlocked Resources</span>
-                  <strong>{unlockedResources}</strong>
-                </article>
-                <article className="stat-card">
-                  <span>Premium Library</span>
-                  <strong>{premiumResources}</strong>
-                </article>
-              </div>
-            )}
-          </div>
-          <div className="student-grid professional-desk">
-            <aside className="profile-panel">
+        <section className="student-dashboard-shell" id="student-desk">
+          <aside className="student-sidebar">
+            <div className="sidebar-profile">
               {profile.photo ? (
                 <img className="profile-photo" src={profile.photo} alt="" />
               ) : (
@@ -410,6 +400,14 @@ function StudentDeskPage() {
               )}
               <h3>{studentName}</h3>
               <p>{user?.email || "Login to sync your access."}</p>
+            </div>
+            <nav className="dashboard-menu" aria-label="Student dashboard">
+              <button className={deskView === "dashboard" ? "active" : ""} type="button" onClick={() => setDeskView("dashboard")}>Dashboard</button>
+              <button className={deskView === "tracking" ? "active" : ""} type="button" onClick={() => setDeskView("tracking")}>Study Tracking</button>
+              <button className={deskView === "resources" ? "active" : ""} type="button" onClick={() => setDeskView("resources")}>Resources</button>
+              <button className={deskView === "profile" ? "active" : ""} type="button" onClick={() => setDeskView("profile")}>Profile</button>
+            </nav>
+            <div className="sidebar-subscription">
               <div className="subscription-box">
                 <span className="menu-label">Subscription</span>
                 {activeExams.length ? activeExams.map((item) => (
@@ -418,39 +416,201 @@ function StudentDeskPage() {
               </div>
               {!user && <button className="primary-button full" type="button" onClick={() => setAuthMode("signin")}>Login to Continue</button>}
               {user && !activeExams.length && <a className="ghost-button full" href={`${appBase}#plans`}>Buy Exam Access</a>}
-            </aside>
-            <div className="resource-panel">
+            </div>
+          </aside>
+          <div className="student-dashboard-main">
+            <div className="dashboard-topbar">
+              <div>
+                <p className="eyebrow">Student Desk</p>
+                <h1 className="page-title">Your study dashboard</h1>
+                <p>Track preparation, resources, and profile details from one focused workspace.</p>
+              </div>
+              <select value={exam} onChange={(event) => setExam(event.target.value)} aria-label="Select exam">
+                {exams.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </div>
+
+            {deskView === "dashboard" && (
+              <div className="dashboard-view">
+                {!isAdminUser && (
+                  <div className="desk-stats">
+                    <article className="stat-card">
+                      <span>Today's Progress</span>
+                      <strong>{todayPercent}%</strong>
+                    </article>
+                    <article className="stat-card">
+                      <span>Avg. Weekly Hours</span>
+                      <strong>{averageWeeklyHours}</strong>
+                    </article>
+                    <article className="stat-card">
+                      <span>Unlocked Resources</span>
+                      <strong>{unlockedResources}</strong>
+                    </article>
+                    <article className="stat-card">
+                      <span>Premium Library</span>
+                      <strong>{premiumResources}</strong>
+                    </article>
+                  </div>
+                )}
+                <div className="dashboard-grid">
+                  <StudyGraph tracking={tracking} />
+                  <SubjectProgress subjects={tracking.subjects} />
+                </div>
+                <div className="resource-panel">
+                  <div className="toolbar">
+                    <h2>Latest Resources</h2>
+                    <button className="ghost-button" type="button" onClick={() => setDeskView("resources")}>View All</button>
+                  </div>
+                  <ResourceList resources={visibleResources.slice(0, 3)} user={user} />
+                </div>
+              </div>
+            )}
+
+            {deskView === "tracking" && (
+              <div className="tracking-view">
+                <div className="tracking-controls">
+                  <label>Daily Target Hours<input type="number" min="1" max="16" value={tracking.targetHours} onChange={(event) => updateTracking("targetHours", event.target.value)} /></label>
+                  <label>Completed Hours<input type="number" min="0" max="16" value={tracking.completedHours} onChange={(event) => updateTracking("completedHours", event.target.value)} /></label>
+                  <label>Mocks Attempted<input type="number" min="0" max="50" value={tracking.mocksAttempted} onChange={(event) => updateTracking("mocksAttempted", event.target.value)} /></label>
+                  <label>Accuracy %<input type="number" min="0" max="100" value={tracking.accuracy} onChange={(event) => updateTracking("accuracy", event.target.value)} /></label>
+                </div>
+                <div className="dashboard-grid">
+                  <StudyGraph tracking={tracking} />
+                  <SubjectProgress subjects={tracking.subjects} />
+                </div>
+              </div>
+            )}
+
+            {deskView === "resources" && (
+              <div className="resource-panel">
               <div className="toolbar">
                 <label htmlFor="exam">Exam</label>
                 <select id="exam" value={exam} onChange={(event) => setExam(event.target.value)}>
                   {exams.map((item) => <option key={item}>{item}</option>)}
                 </select>
               </div>
-              <div className="resource-list">
-                {visibleResources.length ? visibleResources.map((item) => {
-                  const locked = item.premium && !hasExamAccess(user, item.exam);
-                  return (
-                    <article className={`resource-item ${locked ? "locked" : ""}`} key={item.id}>
-                      <header>
-                        <div>
-                          <h3>{item.title}</h3>
-                          <p>{locked ? "This premium resource unlocks after access activation." : item.description}</p>
-                        </div>
-                        <span className="status-pill">{locked ? "Locked" : "Open"}</span>
-                      </header>
-                      <div className="meta-row">
-                        <span>{item.exam}</span>
-                        <span>{item.type}</span>
-                        <span>{item.premium ? "Premium" : "Free Preview"}</span>
-                      </div>
-                      {!locked && item.url && <a className="text-button" href={item.url} target="_blank" rel="noreferrer">Open Resource</a>}
-                    </article>
-                  );
-                }) : <article className="resource-item"><h3>No resources yet</h3><p>Your guide can publish resources from the admin page.</p></article>}
+              <ResourceList resources={visibleResources} user={user} />
               </div>
-            </div>
+            )}
+
+            {deskView === "profile" && (
+              <ProfileForm
+                profile={profile}
+                user={user}
+                profileMessage={profileMessage}
+                updateProfile={updateProfile}
+                handleProfilePhoto={handleProfilePhoto}
+                saveProfile={saveProfile}
+                setAuthMode={setAuthMode}
+              />
+            )}
           </div>
-          <form className="profile-edit-panel" id="student-desk-profile" onSubmit={saveProfile}>
+        </section>
+        <section className="section profile-section-anchor" id="student-desk-profile">
+          <ProfileForm
+            profile={profile}
+            user={user}
+            profileMessage={profileMessage}
+            updateProfile={updateProfile}
+            handleProfilePhoto={handleProfilePhoto}
+            saveProfile={saveProfile}
+            setAuthMode={setAuthMode}
+          />
+        </section>
+      </main>
+      <Footer />
+      {authMode && (
+        <AuthModal
+          mode={authMode}
+          onClose={() => setAuthMode(null)}
+          onUser={(nextUser) => {
+            setUser(nextUser);
+            window.location.hash = "student-desk";
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function StudyGraph({ tracking }) {
+  const maxHours = Math.max(...tracking.weeklyHours, Number(tracking.targetHours || 1), 1);
+  const days = ["M", "T", "W", "T", "F", "S", "S"];
+
+  return (
+    <section className="graph-card">
+      <div className="toolbar">
+        <div>
+          <p className="eyebrow">Study Tracking</p>
+          <h2>Weekly study graph</h2>
+        </div>
+        <span className="status-pill">{tracking.completedHours}/{tracking.targetHours}h today</span>
+      </div>
+      <div className="bar-graph">
+        {tracking.weeklyHours.map((hours, index) => (
+          <div className="bar-column" key={`${days[index]}-${index}`}>
+            <div className="bar-track">
+              <span style={{ height: `${Math.max(8, (hours / maxHours) * 100)}%` }}></span>
+            </div>
+            <strong>{days[index]}</strong>
+            <small>{hours}h</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SubjectProgress({ subjects }) {
+  return (
+    <section className="subject-card">
+      <p className="eyebrow">Subject Strength</p>
+      <h2>Preparation balance</h2>
+      <div className="subject-list">
+        {Object.entries(subjects).map(([subject, value]) => (
+          <div className="subject-row" key={subject}>
+            <div>
+              <strong>{subject}</strong>
+              <span>{value}%</span>
+            </div>
+            <div className="progress-line"><i style={{ width: `${value}%` }}></i></div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ResourceList({ resources, user }) {
+  return (
+    <div className="resource-list">
+      {resources.length ? resources.map((item) => {
+        const locked = item.premium && !hasExamAccess(user, item.exam);
+        return (
+          <article className={`resource-item ${locked ? "locked" : ""}`} key={item.id}>
+            <header>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{locked ? "This premium resource unlocks after access activation." : item.description}</p>
+              </div>
+              <span className="status-pill">{locked ? "Locked" : "Open"}</span>
+            </header>
+            <div className="meta-row">
+              <span>{item.exam}</span>
+              <span>{item.type}</span>
+              <span>{item.premium ? "Premium" : "Free Preview"}</span>
+            </div>
+            {!locked && item.url && <a className="text-button" href={item.url} target="_blank" rel="noreferrer">Open Resource</a>}
+          </article>
+        );
+      }) : <article className="resource-item"><h3>No resources yet</h3><p>Your guide can publish resources from the admin page.</p></article>}
+    </div>
+  );
+}
+
+function ProfileForm({ profile, user, profileMessage, updateProfile, handleProfilePhoto, saveProfile, setAuthMode }) {
+  return (
+    <form className="profile-edit-panel" onSubmit={saveProfile}>
             <div>
               <p className="eyebrow">Profile</p>
               <h2>Student profile</h2>
@@ -468,20 +628,6 @@ function StudentDeskPage() {
             <button className="primary-button" type="submit">{user ? "Save Profile" : "Login to Save"}</button>
             {profileMessage && <p className="form-message">{profileMessage}</p>}
           </form>
-        </section>
-      </main>
-      <Footer />
-      {authMode && (
-        <AuthModal
-          mode={authMode}
-          onClose={() => setAuthMode(null)}
-          onUser={(nextUser) => {
-            setUser(nextUser);
-            window.location.hash = "student-desk";
-          }}
-        />
-      )}
-    </>
   );
 }
 

@@ -167,6 +167,41 @@ export function getAccessMap() {
   return storage.get("db_access", {});
 }
 
+export function getStudyTracking(email) {
+  if (!email) return getDefaultTracking();
+  const allTracking = storage.get("db_tracking", {});
+  return allTracking[email] || getDefaultTracking();
+}
+
+export function saveStudyTracking(email, tracking) {
+  if (!email) throw new Error("Login required.");
+  const allTracking = storage.get("db_tracking", {});
+  allTracking[email] = {
+    ...getDefaultTracking(),
+    ...(allTracking[email] || {}),
+    ...tracking,
+    updatedAt: new Date().toISOString()
+  };
+  storage.set("db_tracking", allTracking);
+  return allTracking[email];
+}
+
+function getDefaultTracking() {
+  return {
+    targetHours: 6,
+    completedHours: 2,
+    mocksAttempted: 1,
+    accuracy: 72,
+    weeklyHours: [2, 3, 1.5, 4, 2.5, 5, 3.5],
+    subjects: {
+      Quant: 65,
+      Reasoning: 78,
+      English: 58,
+      "Current Affairs": 45
+    }
+  };
+}
+
 export function getLocalStudents() {
   const students = storage.get("db_students", {});
   const profiles = storage.get("db_profiles", {});
