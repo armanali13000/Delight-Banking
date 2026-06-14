@@ -122,7 +122,7 @@ function Header({ user, onAuth, onLogout }) {
                     <p>No active exam access</p>
                   )}
                 </div>
-                <a className="menu-link" href={`${studentDeskUrl}-profile`} onClick={() => setProfileOpen(false)}>Profile</a>
+                <a className="menu-link" href={`${studentDeskUrl}-profile`} onClick={() => setProfileOpen(false)}>Student Profile</a>
                 <button className="menu-link danger-link" type="button" onClick={onLogout}>Logout</button>
               </div>
             )}
@@ -327,7 +327,9 @@ function StudentDeskPage() {
   const [exam, setExam] = useState(exams[0]);
   const [profile, setProfile] = useState({});
   const [profileMessage, setProfileMessage] = useState("");
-  const [deskView, setDeskView] = useState("dashboard");
+  const [deskView, setDeskView] = useState(() => {
+    return window.location.hash === "#student-desk-profile" ? "profile" : "dashboard";
+  });
   const [tracking, setTracking] = useState(getStudyTracking(""));
 
   useEffect(() => {
@@ -337,6 +339,16 @@ function StudentDeskPage() {
       setTracking(nextUser?.email ? getStudyTracking(nextUser.email) : getStudyTracking(""));
     });
     refreshResources();
+  }, []);
+
+  useEffect(() => {
+    const syncDeskView = () => {
+      if (window.location.hash === "#student-desk-profile") setDeskView("profile");
+      if (window.location.hash === "#student-desk") setDeskView("dashboard");
+    };
+    syncDeskView();
+    window.addEventListener("hashchange", syncDeskView);
+    return () => window.removeEventListener("hashchange", syncDeskView);
   }, []);
 
   async function refreshResources() {
@@ -405,7 +417,10 @@ function StudentDeskPage() {
               <button className={deskView === "dashboard" ? "active" : ""} type="button" onClick={() => setDeskView("dashboard")}>Dashboard</button>
               <button className={deskView === "tracking" ? "active" : ""} type="button" onClick={() => setDeskView("tracking")}>Study Tracking</button>
               <button className={deskView === "resources" ? "active" : ""} type="button" onClick={() => setDeskView("resources")}>Resources</button>
-              <button className={deskView === "profile" ? "active" : ""} type="button" onClick={() => setDeskView("profile")}>Profile</button>
+              <button className={deskView === "profile" ? "active" : ""} type="button" onClick={() => {
+                setDeskView("profile");
+                window.location.hash = "student-desk-profile";
+              }}>Student Profile</button>
             </nav>
             <div className="sidebar-subscription">
               <div className="subscription-box">
