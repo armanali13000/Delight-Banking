@@ -579,10 +579,6 @@ p {
   gap: 1rem;
 }
 
-.profile-section-anchor {
-  padding-top: 0;
-}
-
 .professional-desk {
   grid-template-columns: minmax(18rem, 0.28fr) minmax(0, 0.72fr);
 }

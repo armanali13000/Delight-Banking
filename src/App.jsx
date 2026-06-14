@@ -521,17 +521,6 @@ function StudentDeskPage() {
             )}
           </div>
         </section>
-        <section className="section profile-section-anchor" id="student-desk-profile">
-          <ProfileForm
-            profile={profile}
-            user={user}
-            profileMessage={profileMessage}
-            updateProfile={updateProfile}
-            handleProfilePhoto={handleProfilePhoto}
-            saveProfile={saveProfile}
-            setAuthMode={setAuthMode}
-          />
-        </section>
       </main>
       <Footer />
       {authMode && (
