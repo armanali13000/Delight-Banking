@@ -7,6 +7,7 @@ import {
   addResource,
   deleteResource,
   getResources,
+  getAccessMap,
   hasExamAccess,
   listenToAuth,
   signOutUser
@@ -25,6 +26,9 @@ function Header({ user, onAuth, onLogout }) {
   const adminUrl = `${appBase}#admin`;
   const studentDeskUrl = `${appBase}#student-desk`;
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "dark");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
+  const studentName = user?.displayName || user?.email?.split("@")[0] || "Student";
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -43,14 +47,44 @@ function Header({ user, onAuth, onLogout }) {
       </nav>
       <div className="header-actions">
         <button
-          className="ghost-button theme-button"
+          className="icon-button theme-button"
           type="button"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          title={theme === "dark" ? "Light mode" : "Dark mode"}
         >
-          {theme === "dark" ? "Light" : "Dark"}
+          <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
         </button>
         {user ? (
-          <button className="ghost-button" type="button" onClick={onLogout}>Logout</button>
+          <div className="profile-menu">
+            <button
+              className="profile-button"
+              type="button"
+              onClick={() => setProfileOpen(!profileOpen)}
+              aria-expanded={profileOpen}
+              aria-label="Open profile menu"
+            >
+              {(studentName || "D").slice(0, 1).toUpperCase()}
+            </button>
+            {profileOpen && (
+              <div className="profile-dropdown">
+                <div className="profile-summary">
+                  <strong>{studentName}</strong>
+                  <span>{user.email}</span>
+                </div>
+                <div className="subscription-box">
+                  <span className="menu-label">Subscription</span>
+                  {activeExams.length ? (
+                    activeExams.map((exam) => <span className="status-pill" key={exam}>{exam}</span>)
+                  ) : (
+                    <p>No active exam access</p>
+                  )}
+                </div>
+                <a className="menu-link" href={studentDeskUrl} onClick={() => setProfileOpen(false)}>Profile</a>
+                <button className="menu-link danger-link" type="button" onClick={onLogout}>Logout</button>
+              </div>
+            )}
+          </div>
         ) : (
           <>
             <button className="ghost-button" type="button" onClick={() => onAuth("signin")}>Login</button>
@@ -327,6 +361,7 @@ function Footer() {
         <a href={`${appBase}#plans`}>Access Plans</a>
         <a href={`${appBase}#student-desk`}>Student Desk</a>
         <a href={`${appBase}#admin`}>Admin</a>
+        <a href={`${appBase}#privacy-policy`}>Privacy Policy</a>
       </div>
       <div>
         <h4>Contact</h4>
@@ -335,6 +370,55 @@ function Footer() {
         <span>Copyright {new Date().getFullYear()} Delight Banking</span>
       </div>
     </footer>
+  );
+}
+
+function PrivacyPolicyPage() {
+  const [authMode, setAuthMode] = useState(null);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    listenToAuth(setUser);
+  }, []);
+
+  async function logout() {
+    await signOutUser();
+    setUser(null);
+  }
+
+  return (
+    <>
+      <Header user={user} onAuth={setAuthMode} onLogout={logout} />
+      <main className="policy-page">
+        <section className="section">
+          <div className="section-heading">
+            <p className="eyebrow">Privacy Policy</p>
+            <h1 className="page-title">Your data and access</h1>
+            <p>Delight Banking uses login information to manage student access, resources, and exam-plan subscriptions.</p>
+          </div>
+          <div className="policy-content">
+            <article className="premium-card">
+              <h3>Information We Use</h3>
+              <p>We may use your name, email address, login provider details, selected exam plan, and resource access status to provide the learning experience.</p>
+            </article>
+            <article className="premium-card">
+              <h3>Payments</h3>
+              <p>Payments are processed by a secure payment provider. Delight Banking should not store your card, UPI, or banking credentials on this website.</p>
+            </article>
+            <article className="premium-card">
+              <h3>Resources</h3>
+              <p>Access to premium resources is connected to the exam plan activated on your account.</p>
+            </article>
+            <article className="premium-card">
+              <h3>Contact</h3>
+              <p>For privacy or account questions, email support@delightbanking.com.</p>
+            </article>
+          </div>
+        </section>
+      </main>
+      <Footer />
+      {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}
+    </>
   );
 }
 
@@ -445,7 +529,9 @@ export default function App() {
 
   const isAdminRoute = route.endsWith("#admin") || route.endsWith("/admin");
   const isStudentDeskRoute = route.endsWith("#student-desk") || route.endsWith("/student-desk");
+  const isPrivacyRoute = route.endsWith("#privacy-policy") || route.endsWith("/privacy-policy");
   if (isAdminRoute) return <AdminPage />;
   if (isStudentDeskRoute) return <StudentDeskPage />;
+  if (isPrivacyRoute) return <PrivacyPolicyPage />;
   return <HomePage />;
 }
