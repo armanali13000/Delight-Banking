@@ -24,7 +24,7 @@ for production access control.
 
 ## Firebase Firestore rules starter
 
-Use stricter rules before launch. This starter allows public reading of
+Use these rules for the current admin email. This allows public reading of
 resources and admin-only writing when the user's email is in the allowed list.
 
 ```js
@@ -33,7 +33,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
       return request.auth != null &&
-        request.auth.token.email in ['admin@delightbanking.com'];
+        request.auth.token.email in ['darkdevil7325@gmail.com'];
     }
 
     match /resources/{resourceId} {

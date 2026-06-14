@@ -103,9 +103,14 @@ export async function getResources() {
   const fb = await getFirebase();
   if (!fb) return storage.get("db_resources", seedResources);
 
-  const snapshot = await fb.firestoreModule.getDocs(fb.firestoreModule.collection(fb.db, "resources"));
-  if (snapshot.empty) return seedResources;
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  try {
+    const snapshot = await fb.firestoreModule.getDocs(fb.firestoreModule.collection(fb.db, "resources"));
+    if (snapshot.empty) return seedResources;
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error("Unable to load Firestore resources", error);
+    return storage.get("db_resources", seedResources);
+  }
 }
 
 export async function addResource(resource) {
@@ -119,8 +124,12 @@ export async function addResource(resource) {
     return next[0];
   }
 
-  const ref = await fb.firestoreModule.addDoc(fb.firestoreModule.collection(fb.db, "resources"), payload);
-  return { id: ref.id, ...payload };
+  try {
+    const ref = await fb.firestoreModule.addDoc(fb.firestoreModule.collection(fb.db, "resources"), payload);
+    return { id: ref.id, ...payload };
+  } catch (error) {
+    throw new Error(getFirebaseWriteError(error));
+  }
 }
 
 export async function deleteResource(id) {
@@ -129,7 +138,21 @@ export async function deleteResource(id) {
     storage.set("db_resources", storage.get("db_resources", seedResources).filter((item) => item.id !== id));
     return;
   }
-  await fb.firestoreModule.deleteDoc(fb.firestoreModule.doc(fb.db, "resources", id));
+  try {
+    await fb.firestoreModule.deleteDoc(fb.firestoreModule.doc(fb.db, "resources", id));
+  } catch (error) {
+    throw new Error(getFirebaseWriteError(error));
+  }
+}
+
+function getFirebaseWriteError(error) {
+  if (error?.code === "permission-denied") {
+    return "Firestore denied this action. Add your admin email in Firestore rules and publish the rules.";
+  }
+  if (error?.code === "unavailable" || error?.code === "not-found") {
+    return "Firestore is not ready. Create a Firestore Database in Firebase Console first.";
+  }
+  return error?.message || "Resource could not be saved.";
 }
 
 export function getAccessMap() {

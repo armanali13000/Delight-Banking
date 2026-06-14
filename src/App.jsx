@@ -66,7 +66,23 @@ function Header({ user, onAuth, onLogout }) {
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           title={theme === "dark" ? "Light mode" : "Dark mode"}
         >
-          <span className="theme-glyph" data-mode={theme === "dark" ? "light" : "dark"} aria-hidden="true"></span>
+          {theme === "dark" ? (
+            <svg className="theme-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4V2" />
+              <path d="M12 22v-2" />
+              <path d="m4.93 4.93 1.41 1.41" />
+              <path d="m17.66 17.66 1.41 1.41" />
+              <path d="M4 12H2" />
+              <path d="M22 12h-2" />
+              <path d="m6.34 17.66-1.41 1.41" />
+              <path d="m19.07 4.93-1.41 1.41" />
+              <circle cx="12" cy="12" r="4" />
+            </svg>
+          ) : (
+            <svg className="theme-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 7 7 0 1 0 20.5 14.5Z" />
+            </svg>
+          )}
         </button>
         {user ? (
           <div className="profile-menu">
@@ -556,23 +572,28 @@ function AdminPage() {
 
   async function publish(event) {
     event.preventDefault();
+    setMessage("");
     if (!isAdmin) {
       setMessage("Login with an admin email first.");
       return;
     }
     const data = new FormData(event.currentTarget);
-    await addResource({
-      title: data.get("title").trim(),
-      exam: data.get("exam"),
-      type: data.get("type"),
-      url: data.get("url").trim(),
-      description: data.get("description").trim(),
-      premium: data.get("premium") === "on"
-    });
-    event.currentTarget.reset();
-    event.currentTarget.elements.premium.checked = true;
-    setMessage("Resource published.");
-    await refreshResources();
+    try {
+      await addResource({
+        title: data.get("title").trim(),
+        exam: data.get("exam"),
+        type: data.get("type"),
+        url: data.get("url").trim(),
+        description: data.get("description").trim(),
+        premium: data.get("premium") === "on"
+      });
+      event.currentTarget.reset();
+      event.currentTarget.elements.premium.checked = true;
+      setMessage("Resource published.");
+      await refreshResources();
+    } catch (error) {
+      setMessage(error.message);
+    }
   }
 
   const list = resources.filter((item) => exam === "All" || item.exam === exam);
@@ -641,7 +662,14 @@ function AdminPage() {
                       <h3>{item.title}</h3>
                       <p>{item.description}</p>
                     </div>
-                    {isAdmin && <button className="ghost-button" type="button" onClick={async () => { await deleteResource(item.id); await refreshResources(); }}>Delete</button>}
+                    {isAdmin && <button className="ghost-button" type="button" onClick={async () => {
+                      try {
+                        await deleteResource(item.id);
+                        await refreshResources();
+                      } catch (error) {
+                        setMessage(error.message);
+                      }
+                    }}>Delete</button>}
                   </header>
                   <div className="meta-row"><span>{item.exam}</span><span>{item.type}</span><span>{item.premium ? "Premium" : "Free"}</span></div>
                 </article>
