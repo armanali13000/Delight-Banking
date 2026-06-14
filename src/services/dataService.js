@@ -1,6 +1,6 @@
 import { firebaseConfig, seedResources } from "../config.js";
 
-const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => {
+export const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => {
   return typeof value === "string" && value.trim() && !value.includes("PASTE_");
 });
 let firebaseReady = null;
@@ -55,11 +55,7 @@ export async function listenToAuth(callback) {
 export async function signInWithGoogle() {
   const fb = await getFirebase();
   if (!fb) {
-    const email = window.prompt("Demo login email");
-    if (!email) return null;
-    const user = { uid: email, email, displayName: email.split("@")[0] };
-    storage.set("db_user", user);
-    return user;
+    throw new Error("Google login needs Firebase setup first. Add Firebase keys in src/config.js.");
   }
 
   const provider = new fb.authModule.GoogleAuthProvider();

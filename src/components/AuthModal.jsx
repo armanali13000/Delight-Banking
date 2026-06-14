@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { logoPath } from "../config.js";
-import { resetPassword, signInWithEmail, signInWithGoogle } from "../services/dataService.js";
+import { hasFirebaseConfig, resetPassword, signInWithEmail, signInWithGoogle } from "../services/dataService.js";
 
 export function AuthModal({ mode, onClose, onUser }) {
   const [authMode, setAuthMode] = useState(mode || "signin");
@@ -42,6 +42,11 @@ export function AuthModal({ mode, onClose, onUser }) {
           <span>G</span>
           Continue with Google
         </button>
+        {!hasFirebaseConfig && (
+          <p className="setup-note">
+            Google login is disabled until Firebase keys are added.
+          </p>
+        )}
         <div className="divider"><span>or</span></div>
         <label>
           Email

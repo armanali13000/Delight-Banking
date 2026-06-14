@@ -361,6 +361,18 @@ function AdminPage() {
 }
 
 export default function App() {
-  const isAdminRoute = window.location.hash === "#admin" || window.location.pathname.endsWith("/admin");
+  const [route, setRoute] = useState(() => `${window.location.pathname}${window.location.hash}`);
+
+  useEffect(() => {
+    const updateRoute = () => setRoute(`${window.location.pathname}${window.location.hash}`);
+    window.addEventListener("hashchange", updateRoute);
+    window.addEventListener("popstate", updateRoute);
+    return () => {
+      window.removeEventListener("hashchange", updateRoute);
+      window.removeEventListener("popstate", updateRoute);
+    };
+  }, []);
+
+  const isAdminRoute = route.endsWith("#admin") || route.endsWith("/admin");
   return isAdminRoute ? <AdminPage /> : <HomePage />;
 }
