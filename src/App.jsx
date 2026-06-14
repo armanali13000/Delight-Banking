@@ -87,17 +87,23 @@ function Header({ user, onAuth, onLogout }) {
         {user ? (
           <div className="profile-menu">
             <button
-              className="profile-button"
+              className={`profile-button ${savedProfile.photo ? "has-photo" : ""}`}
               type="button"
               onClick={() => setProfileOpen(!profileOpen)}
               aria-expanded={profileOpen}
               aria-label="Open profile menu"
             >
-              {savedProfile.photo ? (
-                <img src={savedProfile.photo} alt="" />
-              ) : (
-                (studentName || "D").slice(0, 1).toUpperCase()
+              {savedProfile.photo && (
+                <img
+                  src={savedProfile.photo}
+                  alt=""
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                    event.currentTarget.parentElement?.classList.add("avatar-fallback");
+                  }}
+                />
               )}
+              <span className="profile-initial">{(studentName || "D").slice(0, 1).toUpperCase()}</span>
             </button>
             {profileOpen && (
               <div className="profile-dropdown">
