@@ -393,7 +393,14 @@ function StudentDeskPage() {
   }
 
   function updateTracking(field, value) {
-    const next = { ...tracking, [field]: Number(value) };
+    const numericValue = Number(value);
+    const next = { ...tracking, [field]: numericValue };
+    if (field === "completedHours") {
+      const todayIndex = (new Date().getDay() + 6) % 7;
+      next.weeklyHours = tracking.weeklyHours.map((hours, index) => {
+        return index === todayIndex ? numericValue : hours;
+      });
+    }
     setTracking(next);
     if (user?.email) saveStudyTracking(user.email, next);
   }
@@ -738,6 +745,7 @@ function AdminPage() {
 
   async function publish(event) {
     event.preventDefault();
+    const form = event.currentTarget;
     setMessage("");
     if (!isAdmin) {
       setMessage("Login with an admin email first.");
@@ -753,8 +761,8 @@ function AdminPage() {
         description: data.get("description").trim(),
         premium: data.get("premium") === "on"
       });
-      event.currentTarget.reset();
-      event.currentTarget.elements.premium.checked = true;
+      form.reset();
+      form.elements.premium.checked = true;
       setMessage("Resource published.");
       await refreshResources();
       await refreshStudents();
@@ -771,18 +779,28 @@ function AdminPage() {
         <Header user={user} onAuth={setAuthMode} onLogout={async () => { await signOutUser(); setUser(null); }} />
         <main className="admin-gate">
           <section className="gate-card">
-            <p className="eyebrow">Admin Access</p>
-            <h1>Admin login required</h1>
-            <p>
-              The Control Room is available only for the Delight Banking admin account.
-            </p>
+            <div className="gate-logo">
+              <Brand small="Admin Control" />
+            </div>
+            <div>
+              <p className="eyebrow">Secure Control Room</p>
+              <h1>Admin login required</h1>
+              <p>
+                Publish resources, review student details, and manage premium learning access from a protected workspace.
+              </p>
+            </div>
+            <div className="gate-feature-grid">
+              <span>Resource publishing</span>
+              <span>Student subscriptions</span>
+              <span>Profile records</span>
+            </div>
             {user ? (
-              <>
+              <div className="gate-warning">
                 <span className="status-pill">Signed in as {user.email}</span>
                 <p className="form-message">This email is not authorized for admin access.</p>
-              </>
+              </div>
             ) : (
-              <button className="primary-button" type="button" onClick={() => setAuthMode("signin")}>Admin Login</button>
+              <button className="primary-button full" type="button" onClick={() => setAuthMode("signin")}>Admin Login</button>
             )}
           </section>
         </main>
@@ -880,6 +898,23 @@ function AdminPage() {
                   ) : (
                     <p>No active subscription</p>
                   )}
+                </div>
+                <div className="student-track-box">
+                  <span className="menu-label">Study Tracking</span>
+                  <div className="track-mini-grid">
+                    <span><strong>{student.tracking?.completedHours ?? 0}h</strong> Today</span>
+                    <span><strong>{student.tracking?.targetHours ?? 0}h</strong> Target</span>
+                    <span><strong>{student.tracking?.mocksAttempted ?? 0}</strong> Mocks</span>
+                    <span><strong>{student.tracking?.accuracy ?? 0}%</strong> Accuracy</span>
+                  </div>
+                  <div className="mini-bars" aria-label="Weekly study hours">
+                    {(student.tracking?.weeklyHours || []).map((hours, index) => (
+                      <i
+                        key={`${student.email}-track-${index}`}
+                        style={{ height: `${Math.max(8, (Number(hours || 0) / 8) * 100)}%` }}
+                      ></i>
+                    ))}
+                  </div>
                 </div>
               </article>
             )) : (

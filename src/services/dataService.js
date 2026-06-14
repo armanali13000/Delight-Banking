@@ -183,6 +183,7 @@ export function saveStudyTracking(email, tracking) {
     updatedAt: new Date().toISOString()
   };
   storage.set("db_tracking", allTracking);
+  rememberStudent({ email }, { tracking: allTracking[email] });
   return allTracking[email];
 }
 
@@ -206,13 +207,15 @@ export function getLocalStudents() {
   const students = storage.get("db_students", {});
   const profiles = storage.get("db_profiles", {});
   const access = getAccessMap();
+  const tracking = storage.get("db_tracking", {});
 
   return Object.values(students).map((student) => {
     const profile = profiles[student.email] || {};
     return {
       ...student,
       ...profile,
-      activeExams: access[student.email] || []
+      activeExams: access[student.email] || [],
+      tracking: tracking[student.email] || student.tracking || getDefaultTracking()
     };
   });
 }
@@ -232,7 +235,8 @@ export async function getStudents() {
       byEmail.set(student.email, {
         ...(byEmail.get(student.email) || {}),
         ...student,
-        activeExams: student.activeExams || []
+        activeExams: student.activeExams || [],
+        tracking: student.tracking || getDefaultTracking()
       });
     });
 
@@ -294,6 +298,7 @@ function rememberStudent(user, extra = {}) {
     address: extra.address || existing.address || "",
     targetExam: extra.targetExam || existing.targetExam || "",
     activeExams: extra.activeExams || access[user.email] || existing.activeExams || [],
+    tracking: extra.tracking || existing.tracking || getStudyTracking(user.email),
     lastSeenAt: new Date().toISOString()
   };
 
