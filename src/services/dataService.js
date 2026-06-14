@@ -1,4 +1,4 @@
-import { firebaseConfig, seedResources } from "../config.js";
+import { adminEmails, firebaseConfig, seedResources } from "../config.js";
 
 export const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => {
   return typeof value === "string" && value.trim() && !value.includes("PASTE_");
@@ -42,6 +42,25 @@ const storage = {
     localStorage.setItem(key, JSON.stringify(value));
   }
 };
+
+function isAdminEmail(email) {
+  return Boolean(email && adminEmails.includes(email.toLowerCase()));
+}
+
+function removeLocalStudent(email) {
+  const students = storage.get("db_students", {});
+  const targetEmail = email.toLowerCase();
+  let changed = false;
+
+  Object.keys(students).forEach((studentEmail) => {
+    if (studentEmail.toLowerCase() === targetEmail) {
+      delete students[studentEmail];
+      changed = true;
+    }
+  });
+
+  if (changed) storage.set("db_students", students);
+}
 
 export async function listenToAuth(callback) {
   const fb = await getFirebase();
@@ -209,7 +228,7 @@ export function getLocalStudents() {
   const access = getAccessMap();
   const tracking = storage.get("db_tracking", {});
 
-  return Object.values(students).map((student) => {
+  return Object.values(students).filter((student) => !isAdminEmail(student.email)).map((student) => {
     const profile = profiles[student.email] || {};
     return {
       ...student,
@@ -231,7 +250,7 @@ export async function getStudents() {
     const byEmail = new Map();
 
     [...cloudStudents, ...localStudents].forEach((student) => {
-      if (!student.email) return;
+      if (!student.email || isAdminEmail(student.email)) return;
       byEmail.set(student.email, {
         ...(byEmail.get(student.email) || {}),
         ...student,
@@ -283,6 +302,10 @@ export function activateAccess(user, exam) {
 
 function rememberStudent(user, extra = {}) {
   if (!user?.email) return;
+  if (isAdminEmail(user.email)) {
+    removeLocalStudent(user.email);
+    return;
+  }
 
   const students = storage.get("db_students", {});
   const existing = students[user.email] || {};
