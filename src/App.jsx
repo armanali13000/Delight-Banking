@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
-import { adminEmails, exams, paymentConfig, plans } from "./config.js";
+import { adminEmails, appBase, exams, paymentConfig, plans } from "./config.js";
 import {
   activateAccess,
   addResource,
@@ -22,15 +22,17 @@ const examCards = [
 ];
 
 function Header({ user, onAuth, onLogout }) {
+  const adminUrl = `${appBase}#admin`;
+
   return (
     <header className="site-header">
       <Brand />
       <nav className="main-nav">
-        <a href="/#programs">Exams</a>
-        <a href="/#strategy">Strategy</a>
-        <a href="/#plans">Plans</a>
-        <a href="/#resources">Resources</a>
-        <a href="/admin">Admin</a>
+        <a href={`${appBase}#programs`}>Exams</a>
+        <a href={`${appBase}#strategy`}>Strategy</a>
+        <a href={`${appBase}#plans`}>Plans</a>
+        <a href={`${appBase}#resources`}>Resources</a>
+        <a href={adminUrl}>Admin</a>
       </nav>
       <div className="header-actions">
         {user ? (
@@ -247,14 +249,14 @@ function Footer() {
       </div>
       <div>
         <h4>Exams</h4>
-        {exams.slice(0, 4).map((exam) => <a href="/#programs" key={exam}>{exam}</a>)}
+        {exams.slice(0, 4).map((exam) => <a href={`${appBase}#programs`} key={exam}>{exam}</a>)}
       </div>
       <div>
         <h4>Platform</h4>
-        <a href="/#strategy">Strategy</a>
-        <a href="/#plans">Access Plans</a>
-        <a href="/#resources">Student Desk</a>
-        <a href="/admin">Admin</a>
+        <a href={`${appBase}#strategy`}>Strategy</a>
+        <a href={`${appBase}#plans`}>Access Plans</a>
+        <a href={`${appBase}#resources`}>Student Desk</a>
+        <a href={`${appBase}#admin`}>Admin</a>
       </div>
       <div>
         <h4>Contact</h4>
@@ -359,5 +361,6 @@ function AdminPage() {
 }
 
 export default function App() {
-  return window.location.pathname.startsWith("/admin") ? <AdminPage /> : <HomePage />;
+  const isAdminRoute = window.location.hash === "#admin" || window.location.pathname.endsWith("/admin");
+  return isAdminRoute ? <AdminPage /> : <HomePage />;
 }
