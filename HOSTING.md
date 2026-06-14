@@ -110,3 +110,6 @@ Admin opens at:
 ```text
 https://armanali13000.github.io/Delight-Banking/#admin
 ```
+
+If the site still shows a white page, open GitHub Pages settings again and make
+sure it is not set to `/root`. It must be `/docs`.

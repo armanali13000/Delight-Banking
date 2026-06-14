@@ -9,6 +9,14 @@
     />
     <link rel="icon" type="image/png" href="/delight-logo.png" />
     <title>Delight Banking</title>
+    <script>
+      if (
+        location.hostname.endsWith("github.io") &&
+        location.pathname === "/Delight-Banking/"
+      ) {
+        location.replace("/Delight-Banking/docs/");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

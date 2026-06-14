@@ -1,4 +1,4 @@
-export const appBase = import.meta.env.BASE_URL;
+export const appBase = import.meta.env.BASE_URL || "./";
 export const logoPath = `${appBase}delight-logo.png`;
 
 export const firebaseConfig = {
