@@ -136,6 +136,24 @@ export function getAccessMap() {
   return storage.get("db_access", {});
 }
 
+export function getUserProfile(email) {
+  if (!email) return {};
+  return storage.get("db_profiles", {})[email] || {};
+}
+
+export function saveUserProfile(email, profile) {
+  if (!email) throw new Error("Login required.");
+  const profiles = storage.get("db_profiles", {});
+  profiles[email] = {
+    ...(profiles[email] || {}),
+    ...profile,
+    updatedAt: new Date().toISOString()
+  };
+  storage.set("db_profiles", profiles);
+  window.dispatchEvent(new CustomEvent("profile-updated"));
+  return profiles[email];
+}
+
 export function hasExamAccess(user, exam) {
   if (!user) return false;
   return Boolean(getAccessMap()[user.email]?.includes(exam));

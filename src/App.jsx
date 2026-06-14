@@ -8,8 +8,10 @@ import {
   deleteResource,
   getResources,
   getAccessMap,
+  getUserProfile,
   hasExamAccess,
   listenToAuth,
+  saveUserProfile,
   signOutUser
 } from "./services/dataService.js";
 
@@ -27,18 +29,29 @@ function Header({ user, onAuth, onLogout }) {
   const studentDeskUrl = `${appBase}#student-desk`;
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "dark");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileVersion, setProfileVersion] = useState(0);
   const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
-  const studentName = user?.displayName || user?.email?.split("@")[0] || "Student";
+  const savedProfile = user?.email ? getUserProfile(user.email) : {};
+  const studentName = savedProfile.name || user?.displayName || user?.email?.split("@")[0] || "Student";
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("db_theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    const refreshProfile = () => setProfileVersion((value) => value + 1);
+    window.addEventListener("profile-updated", refreshProfile);
+    return () => window.removeEventListener("profile-updated", refreshProfile);
+  }, []);
+
+  void profileVersion;
+
   return (
     <header className="site-header">
       <Brand />
       <nav className="main-nav">
+        <a href={appBase}>Home</a>
         <a href={`${appBase}#programs`}>Exams</a>
         <a href={`${appBase}#strategy`}>Strategy</a>
         <a href={`${appBase}#plans`}>Plans</a>
@@ -53,7 +66,7 @@ function Header({ user, onAuth, onLogout }) {
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           title={theme === "dark" ? "Light mode" : "Dark mode"}
         >
-          <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
+          <span className="theme-glyph" data-mode={theme === "dark" ? "light" : "dark"} aria-hidden="true"></span>
         </button>
         {user ? (
           <div className="profile-menu">
@@ -64,7 +77,11 @@ function Header({ user, onAuth, onLogout }) {
               aria-expanded={profileOpen}
               aria-label="Open profile menu"
             >
-              {(studentName || "D").slice(0, 1).toUpperCase()}
+              {savedProfile.photo ? (
+                <img src={savedProfile.photo} alt="" />
+              ) : (
+                (studentName || "D").slice(0, 1).toUpperCase()
+              )}
             </button>
             {profileOpen && (
               <div className="profile-dropdown">
@@ -80,7 +97,7 @@ function Header({ user, onAuth, onLogout }) {
                     <p>No active exam access</p>
                   )}
                 </div>
-                <a className="menu-link" href={studentDeskUrl} onClick={() => setProfileOpen(false)}>Profile</a>
+                <a className="menu-link" href={`${studentDeskUrl}-profile`} onClick={() => setProfileOpen(false)}>Profile</a>
                 <button className="menu-link danger-link" type="button" onClick={onLogout}>Logout</button>
               </div>
             )}
@@ -100,6 +117,8 @@ function HomePage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
   const [resources, setResources] = useState([]);
+  const [accessVersion, setAccessVersion] = useState(0);
+  const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
 
   useEffect(() => {
     listenToAuth(setUser);
@@ -119,6 +138,7 @@ function HomePage() {
     if (!window.Razorpay || paymentConfig.key.includes("PASTE_")) {
       activateAccess(user, plan.exam);
       setResources([...resources]);
+      setAccessVersion((value) => value + 1);
       window.alert(`${plan.exam} access activated in demo mode.`);
       window.location.hash = "student-desk";
       return;
@@ -135,6 +155,7 @@ function HomePage() {
       handler: () => {
         activateAccess(user, plan.exam);
         setResources([...resources]);
+        setAccessVersion((value) => value + 1);
         window.alert(`${plan.exam} access is active.`);
         window.location.hash = "student-desk";
       },
@@ -153,6 +174,8 @@ function HomePage() {
     checkout.open();
   }
 
+  void accessVersion;
+
   return (
     <>
       <Header user={user} onAuth={setAuthMode} onLogout={logout} />
@@ -166,7 +189,9 @@ function HomePage() {
               current affairs, and resources that unlock after access activation.
             </p>
             <div className="hero-actions">
-              <a className="primary-button" href="#plans">Choose Access</a>
+              <a className="primary-button" href={activeExams.length ? "#student-desk" : "#plans"}>
+                {activeExams.length ? "Open Student Desk" : "Choose Access"}
+              </a>
               <a className="ghost-button" href="#student-desk">Student Desk</a>
             </div>
           </div>
@@ -224,20 +249,35 @@ function HomePage() {
         <section className="section" id="plans">
           <div className="section-heading">
             <p className="eyebrow">Access Plans</p>
-            <h2>Choose access by exam</h2>
-            <p>Plan details are editable in one React config file whenever you want to change them.</p>
+            <h2>{activeExams.length ? "Your access is active" : "Choose access by exam"}</h2>
+            <p>
+              {activeExams.length
+                ? "You already have an active exam plan. Continue to your resources and study dashboard."
+                : "Plan details are editable in one React config file whenever you want to change them."}
+            </p>
           </div>
-          <div className="pricing-grid">
-            {plans.map((plan) => (
-              <article className={`plan-card ${plan.featured ? "featured" : ""}`} key={plan.id}>
-                <span className="chip">{plan.exam}</span>
-                <h3>{plan.title}</h3>
-                <div className="price">Rs. {plan.price}</div>
-                <ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul>
-                <button className="primary-button full" type="button" onClick={() => buyPlan(plan)}>Buy Access</button>
-              </article>
-            ))}
-          </div>
+          {activeExams.length ? (
+            <div className="access-summary-card">
+              <div>
+                <span className="chip">Active</span>
+                <h3>{activeExams.join(", ")}</h3>
+                <p>Plans are hidden for subscribed students so you can focus on resources.</p>
+              </div>
+              <a className="primary-button" href="#student-desk">Open Resources</a>
+            </div>
+          ) : (
+            <div className="pricing-grid">
+              {plans.map((plan) => (
+                <article className={`plan-card ${plan.featured ? "featured" : ""}`} key={plan.id}>
+                  <span className="chip">{plan.exam}</span>
+                  <h3>{plan.title}</h3>
+                  <div className="price">Rs. {plan.price}</div>
+                  <ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul>
+                  <button className="primary-button full" type="button" onClick={() => buyPlan(plan)}>Buy Access</button>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </main>
       <Footer />
@@ -260,9 +300,14 @@ function StudentDeskPage() {
   const [user, setUser] = useState(null);
   const [resources, setResources] = useState([]);
   const [exam, setExam] = useState(exams[0]);
+  const [profile, setProfile] = useState({});
+  const [profileMessage, setProfileMessage] = useState("");
 
   useEffect(() => {
-    listenToAuth(setUser);
+    listenToAuth((nextUser) => {
+      setUser(nextUser);
+      setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {});
+    });
     refreshResources();
   }, []);
 
@@ -273,28 +318,80 @@ function StudentDeskPage() {
   async function logout() {
     await signOutUser();
     setUser(null);
+    setProfile({});
   }
 
   const visibleResources = useMemo(() => resources.filter((item) => item.exam === exam), [resources, exam]);
+  const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
+  const unlockedResources = resources.filter((item) => !item.premium || hasExamAccess(user, item.exam)).length;
+  const premiumResources = resources.filter((item) => item.premium).length;
+  const studentName = profile.name || user?.displayName || user?.email?.split("@")[0] || "Guest Student";
+
+  function updateProfile(field, value) {
+    setProfile((current) => ({ ...current, [field]: value }));
+  }
+
+  function saveProfile(event) {
+    event.preventDefault();
+    if (!user?.email) {
+      setAuthMode("signin");
+      return;
+    }
+    saveUserProfile(user.email, profile);
+    setProfileMessage("Profile saved.");
+  }
+
+  function handleProfilePhoto(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => updateProfile("photo", reader.result);
+    reader.readAsDataURL(file);
+  }
 
   return (
     <>
       <Header user={user} onAuth={setAuthMode} onLogout={logout} />
       <main className="desk-page">
-        <section className="section" id="student-desk">
-          <div className="section-heading">
-            <p className="eyebrow">Student Desk</p>
-            <h1 className="page-title">Your study dashboard</h1>
-            <p>Login and activate an exam plan to view mentor resources, study targets, and current affairs.</p>
+        <section className="section desk-hero-section" id="student-desk">
+          <div className="desk-hero">
+            <div className="section-heading">
+              <p className="eyebrow">Student Desk</p>
+              <h1 className="page-title">Your study dashboard</h1>
+              <p>Track exam access, daily resources, study targets, and profile details from one focused workspace.</p>
+            </div>
+            <div className="desk-stats">
+              <article className="stat-card">
+                <span>Active Plans</span>
+                <strong>{activeExams.length}</strong>
+              </article>
+              <article className="stat-card">
+                <span>Unlocked Resources</span>
+                <strong>{unlockedResources}</strong>
+              </article>
+              <article className="stat-card">
+                <span>Premium Library</span>
+                <strong>{premiumResources}</strong>
+              </article>
+            </div>
           </div>
-          <div className="student-grid">
+          <div className="student-grid professional-desk">
             <aside className="profile-panel">
-              <div className="profile-logo">{(user?.displayName || user?.email || "D").slice(0, 1).toUpperCase()}</div>
-              <h3>{user?.displayName || user?.email?.split("@")[0] || "Guest Student"}</h3>
+              {profile.photo ? (
+                <img className="profile-photo" src={profile.photo} alt="" />
+              ) : (
+                <div className="profile-logo">{(studentName || "D").slice(0, 1).toUpperCase()}</div>
+              )}
+              <h3>{studentName}</h3>
               <p>{user?.email || "Login to sync your access."}</p>
-              <span className="status-pill">{hasExamAccess(user, exam) ? `${exam} active` : "No active access"}</span>
+              <div className="subscription-box">
+                <span className="menu-label">Subscription</span>
+                {activeExams.length ? activeExams.map((item) => (
+                  <span className="status-pill" key={item}>{item}</span>
+                )) : <p>No active access</p>}
+              </div>
               {!user && <button className="primary-button full" type="button" onClick={() => setAuthMode("signin")}>Login to Continue</button>}
-              {user && <a className="ghost-button full" href={`${appBase}#plans`}>Buy Exam Access</a>}
+              {user && !activeExams.length && <a className="ghost-button full" href={`${appBase}#plans`}>Buy Exam Access</a>}
             </aside>
             <div className="resource-panel">
               <div className="toolbar">
@@ -327,6 +424,24 @@ function StudentDeskPage() {
               </div>
             </div>
           </div>
+          <form className="profile-edit-panel" id="student-desk-profile" onSubmit={saveProfile}>
+            <div>
+              <p className="eyebrow">Profile</p>
+              <h2>Student profile</h2>
+              <p>Keep your profile details updated for guidance and exam planning.</p>
+            </div>
+            <div className="profile-form-grid">
+              <label>Name<input value={profile.name || ""} onChange={(event) => updateProfile("name", event.target.value)} placeholder="Your full name" /></label>
+              <label>Phone<input value={profile.phone || ""} onChange={(event) => updateProfile("phone", event.target.value)} placeholder="Mobile number" /></label>
+              <label>City<input value={profile.city || ""} onChange={(event) => updateProfile("city", event.target.value)} placeholder="Your city" /></label>
+              <label>Target Exam<select value={profile.targetExam || exams[0]} onChange={(event) => updateProfile("targetExam", event.target.value)}>{exams.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label>Profile Picture<input type="file" accept="image/*" onChange={handleProfilePhoto} /></label>
+              <label>Picture URL<input value={profile.photo?.startsWith("data:") ? "" : profile.photo || ""} onChange={(event) => updateProfile("photo", event.target.value)} placeholder="https://..." /></label>
+              <label className="wide-field">Address<textarea rows="3" value={profile.address || ""} onChange={(event) => updateProfile("address", event.target.value)} placeholder="Address or study location" /></label>
+            </div>
+            <button className="primary-button" type="submit">{user ? "Save Profile" : "Login to Save"}</button>
+            {profileMessage && <p className="form-message">{profileMessage}</p>}
+          </form>
         </section>
       </main>
       <Footer />
@@ -462,6 +577,32 @@ function AdminPage() {
 
   const list = resources.filter((item) => exam === "All" || item.exam === exam);
 
+  if (!isAdmin) {
+    return (
+      <>
+        <Header user={user} onAuth={setAuthMode} onLogout={async () => { await signOutUser(); setUser(null); }} />
+        <main className="admin-gate">
+          <section className="gate-card">
+            <p className="eyebrow">Admin Access</p>
+            <h1>Admin login required</h1>
+            <p>
+              The Control Room is available only for the Delight Banking admin account.
+            </p>
+            {user ? (
+              <>
+                <span className="status-pill">Signed in as {user.email}</span>
+                <p className="form-message">This email is not authorized for admin access.</p>
+              </>
+            ) : (
+              <button className="primary-button" type="button" onClick={() => setAuthMode("signin")}>Admin Login</button>
+            )}
+          </section>
+        </main>
+        {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}
+      </>
+    );
+  }
+
   return (
     <>
       <Header user={user} onAuth={setAuthMode} onLogout={async () => { await signOutUser(); setUser(null); }} />
@@ -528,7 +669,7 @@ export default function App() {
   }, []);
 
   const isAdminRoute = route.endsWith("#admin") || route.endsWith("/admin");
-  const isStudentDeskRoute = route.endsWith("#student-desk") || route.endsWith("/student-desk");
+  const isStudentDeskRoute = route.includes("#student-desk") || route.endsWith("/student-desk");
   const isPrivacyRoute = route.endsWith("#privacy-policy") || route.endsWith("/privacy-policy");
   if (isAdminRoute) return <AdminPage />;
   if (isStudentDeskRoute) return <StudentDeskPage />;

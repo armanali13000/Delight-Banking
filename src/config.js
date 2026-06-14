@@ -19,7 +19,7 @@ export const paymentConfig = {
   description: "Exam access activation"
 };
 
-export const adminEmails = ["admin@delightbanking.com"];
+export const adminEmails = ["darkdevil7325@gmail.com"];
 
 export const exams = ["SBI PO", "SBI Clerk", "IBPS PO", "IBPS Clerk", "RRB PO", "RRB Clerk"];
 
