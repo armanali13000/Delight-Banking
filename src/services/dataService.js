@@ -46,10 +46,15 @@ const storage = {
 export async function listenToAuth(callback) {
   const fb = await getFirebase();
   if (!fb) {
-    callback(storage.get("db_user", null));
+    const user = storage.get("db_user", null);
+    if (user) rememberStudent(user);
+    callback(user);
     return () => {};
   }
-  return fb.authModule.onAuthStateChanged(fb.auth, callback);
+  return fb.authModule.onAuthStateChanged(fb.auth, (user) => {
+    if (user) rememberStudent(user);
+    callback(user);
+  });
 }
 
 export async function signInWithGoogle() {
@@ -60,6 +65,7 @@ export async function signInWithGoogle() {
 
   const provider = new fb.authModule.GoogleAuthProvider();
   const result = await fb.authModule.signInWithPopup(fb.auth, provider);
+  rememberStudent(result.user);
   return result.user;
 }
 
@@ -72,6 +78,7 @@ export async function signInWithEmail(email, password, mode) {
   if (!fb) {
     const user = { uid: email, email, displayName: email.split("@")[0] };
     storage.set("db_user", user);
+    rememberStudent(user);
     return user;
   }
 
@@ -79,6 +86,7 @@ export async function signInWithEmail(email, password, mode) {
     ? fb.authModule.createUserWithEmailAndPassword
     : fb.authModule.signInWithEmailAndPassword;
   const result = await action(fb.auth, email, password);
+  rememberStudent(result.user);
   return result.user;
 }
 
@@ -159,6 +167,47 @@ export function getAccessMap() {
   return storage.get("db_access", {});
 }
 
+export function getLocalStudents() {
+  const students = storage.get("db_students", {});
+  const profiles = storage.get("db_profiles", {});
+  const access = getAccessMap();
+
+  return Object.values(students).map((student) => {
+    const profile = profiles[student.email] || {};
+    return {
+      ...student,
+      ...profile,
+      activeExams: access[student.email] || []
+    };
+  });
+}
+
+export async function getStudents() {
+  const fb = await getFirebase();
+  if (!fb) return getLocalStudents();
+
+  try {
+    const snapshot = await fb.firestoreModule.getDocs(fb.firestoreModule.collection(fb.db, "students"));
+    const cloudStudents = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const localStudents = getLocalStudents();
+    const byEmail = new Map();
+
+    [...cloudStudents, ...localStudents].forEach((student) => {
+      if (!student.email) return;
+      byEmail.set(student.email, {
+        ...(byEmail.get(student.email) || {}),
+        ...student,
+        activeExams: student.activeExams || []
+      });
+    });
+
+    return [...byEmail.values()];
+  } catch (error) {
+    console.error("Unable to load students", error);
+    return getLocalStudents();
+  }
+}
+
 export function getUserProfile(email) {
   if (!email) return {};
   return storage.get("db_profiles", {})[email] || {};
@@ -173,6 +222,7 @@ export function saveUserProfile(email, profile) {
     updatedAt: new Date().toISOString()
   };
   storage.set("db_profiles", profiles);
+  rememberStudent({ email, displayName: profiles[email].name }, profiles[email]);
   window.dispatchEvent(new CustomEvent("profile-updated"));
   return profiles[email];
 }
@@ -189,4 +239,46 @@ export function activateAccess(user, exam) {
   active.add(exam);
   access[user.email] = [...active];
   storage.set("db_access", access);
+  rememberStudent(user, { activeExams: access[user.email] });
+}
+
+function rememberStudent(user, extra = {}) {
+  if (!user?.email) return;
+
+  const students = storage.get("db_students", {});
+  const existing = students[user.email] || {};
+  const access = getAccessMap();
+  const student = {
+    ...existing,
+    uid: user.uid || existing.uid || user.email,
+    email: user.email,
+    name: extra.name || user.displayName || existing.name || user.email.split("@")[0],
+    photo: extra.photo || user.photoURL || existing.photo || "",
+    phone: extra.phone || existing.phone || "",
+    city: extra.city || existing.city || "",
+    address: extra.address || existing.address || "",
+    targetExam: extra.targetExam || existing.targetExam || "",
+    activeExams: extra.activeExams || access[user.email] || existing.activeExams || [],
+    lastSeenAt: new Date().toISOString()
+  };
+
+  students[user.email] = student;
+  storage.set("db_students", students);
+  syncStudentToFirestore(student);
+}
+
+async function syncStudentToFirestore(student) {
+  const fb = await getFirebase();
+  if (!fb) return;
+
+  try {
+    const id = encodeURIComponent(student.email);
+    await fb.firestoreModule.setDoc(
+      fb.firestoreModule.doc(fb.db, "students", id),
+      student,
+      { merge: true }
+    );
+  } catch (error) {
+    console.error("Unable to sync student profile", error);
+  }
 }

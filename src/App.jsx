@@ -8,6 +8,7 @@ import {
   deleteResource,
   getResources,
   getAccessMap,
+  getStudents,
   getUserProfile,
   hasExamAccess,
   listenToAuth,
@@ -565,6 +566,7 @@ function PrivacyPolicyPage() {
 function AdminPage() {
   const [user, setUser] = useState(null);
   const [resources, setResources] = useState([]);
+  const [students, setStudents] = useState([]);
   const [exam, setExam] = useState("All");
   const [message, setMessage] = useState("");
   const [authMode, setAuthMode] = useState(null);
@@ -573,10 +575,15 @@ function AdminPage() {
   useEffect(() => {
     listenToAuth(setUser);
     refreshResources();
+    refreshStudents();
   }, []);
 
   async function refreshResources() {
     setResources(await getResources());
+  }
+
+  async function refreshStudents() {
+    setStudents(await getStudents());
   }
 
   async function publish(event) {
@@ -600,6 +607,7 @@ function AdminPage() {
       event.currentTarget.elements.premium.checked = true;
       setMessage("Resource published.");
       await refreshResources();
+      await refreshStudents();
     } catch (error) {
       setMessage(error.message);
     }
@@ -684,6 +692,52 @@ function AdminPage() {
                 </article>
               ))}
             </div>
+          </div>
+        </section>
+        <section className="admin-students-section">
+          <div className="resource-toolbar">
+            <div>
+              <p className="eyebrow">Students</p>
+              <h2>Student details</h2>
+              <p>View known students, profile details, and active subscription exams.</p>
+            </div>
+            <button className="ghost-button" type="button" onClick={refreshStudents}>Refresh</button>
+          </div>
+          <div className="students-grid">
+            {students.length ? students.map((student) => (
+              <article className="student-card" key={student.email}>
+                <header>
+                  {student.photo ? (
+                    <img src={student.photo} alt="" />
+                  ) : (
+                    <div className="profile-logo">{(student.name || student.email || "S").slice(0, 1).toUpperCase()}</div>
+                  )}
+                  <div>
+                    <h3>{student.name || "Student"}</h3>
+                    <p>{student.email}</p>
+                  </div>
+                </header>
+                <dl className="student-details">
+                  <div><dt>Phone</dt><dd>{student.phone || "Not added"}</dd></div>
+                  <div><dt>City</dt><dd>{student.city || "Not added"}</dd></div>
+                  <div><dt>Target Exam</dt><dd>{student.targetExam || "Not selected"}</dd></div>
+                  <div><dt>Address</dt><dd>{student.address || "Not added"}</dd></div>
+                </dl>
+                <div className="subscription-box">
+                  <span className="menu-label">Subscription</span>
+                  {student.activeExams?.length ? (
+                    student.activeExams.map((item) => <span className="status-pill" key={item}>{item}</span>)
+                  ) : (
+                    <p>No active subscription</p>
+                  )}
+                </div>
+              </article>
+            )) : (
+              <article className="resource-item">
+                <h3>No student data yet</h3>
+                <p>Student records appear after users login or update their profiles.</p>
+              </article>
+            )}
           </div>
         </section>
       </main>

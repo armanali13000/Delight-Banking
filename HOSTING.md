@@ -40,6 +40,12 @@ service cloud.firestore {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
+    match /students/{studentId} {
+      allow read: if isAdmin();
+      allow create, update: if request.auth != null;
+      allow delete: if isAdmin();
+    }
   }
 }
 ```
