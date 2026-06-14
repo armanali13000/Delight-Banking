@@ -345,6 +345,7 @@ function StudentDeskPage() {
 
   const visibleResources = useMemo(() => resources.filter((item) => item.exam === exam), [resources, exam]);
   const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
+  const isAdminUser = Boolean(user?.email && adminEmails.includes(user.email));
   const unlockedResources = resources.filter((item) => !item.premium || hasExamAccess(user, item.exam)).length;
   const premiumResources = resources.filter((item) => item.premium).length;
   const studentName = profile.name || user?.displayName || user?.email?.split("@")[0] || "Guest Student";
@@ -382,20 +383,22 @@ function StudentDeskPage() {
               <h1 className="page-title">Your study dashboard</h1>
               <p>Track exam access, daily resources, study targets, and profile details from one focused workspace.</p>
             </div>
-            <div className="desk-stats">
-              <article className="stat-card">
-                <span>Active Plans</span>
-                <strong>{activeExams.length}</strong>
-              </article>
-              <article className="stat-card">
-                <span>Unlocked Resources</span>
-                <strong>{unlockedResources}</strong>
-              </article>
-              <article className="stat-card">
-                <span>Premium Library</span>
-                <strong>{premiumResources}</strong>
-              </article>
-            </div>
+            {!isAdminUser && (
+              <div className="desk-stats">
+                <article className="stat-card">
+                  <span>Active Plans</span>
+                  <strong>{activeExams.length}</strong>
+                </article>
+                <article className="stat-card">
+                  <span>Unlocked Resources</span>
+                  <strong>{unlockedResources}</strong>
+                </article>
+                <article className="stat-card">
+                  <span>Premium Library</span>
+                  <strong>{premiumResources}</strong>
+                </article>
+              </div>
+            )}
           </div>
           <div className="student-grid professional-desk">
             <aside className="profile-panel">
