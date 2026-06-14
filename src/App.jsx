@@ -30,7 +30,7 @@ const examCards = [
 function Header({ user, onAuth, onLogout }) {
   const adminUrl = `${appBase}#admin`;
   const studentDeskUrl = `${appBase}#student-desk`;
-  const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
+  const [theme, setTheme] = useState("light");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileVersion, setProfileVersion] = useState(0);
   const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
