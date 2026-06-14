@@ -31,6 +31,10 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+#root {
+  overflow-x: clip;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -63,6 +67,16 @@ textarea:disabled {
   border-bottom: 1px solid var(--line);
   background: rgba(9, 11, 13, 0.86);
   backdrop-filter: blur(18px);
+}
+
+.site-header,
+.hero,
+.section,
+.strategy-band,
+.admin-shell,
+.site-footer {
+  padding-left: max(clamp(1rem, 4vw, 4.5rem), calc((100vw - 1780px) / 2));
+  padding-right: max(clamp(1rem, 4vw, 4.5rem), calc((100vw - 1780px) / 2));
 }
 
 .brand {
@@ -176,7 +190,8 @@ textarea:disabled {
   grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.9fr);
   gap: 3rem;
   align-items: center;
-  padding: clamp(3rem, 8vw, 7rem) clamp(1rem, 4vw, 4.5rem);
+  padding-top: clamp(3rem, 8vw, 7rem);
+  padding-bottom: clamp(3rem, 8vw, 7rem);
 }
 
 .hero-copy {
@@ -269,7 +284,8 @@ p {
 
 .section,
 .admin-shell {
-  padding: clamp(3.2rem, 7vw, 6rem) clamp(1rem, 4vw, 4.5rem);
+  padding-top: clamp(3.2rem, 7vw, 6rem);
+  padding-bottom: clamp(3.2rem, 7vw, 6rem);
 }
 
 .section-heading,
@@ -310,7 +326,8 @@ p {
   display: grid;
   grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
   gap: 1rem;
-  padding: clamp(3.2rem, 7vw, 6rem) clamp(1rem, 4vw, 4.5rem);
+  padding-top: clamp(3.2rem, 7vw, 6rem);
+  padding-bottom: clamp(3.2rem, 7vw, 6rem);
   border-block: 1px solid var(--line);
   background: #050607;
 }
@@ -433,7 +450,8 @@ select option {
   display: grid;
   grid-template-columns: 1.4fr repeat(3, minmax(9rem, 1fr));
   gap: 2rem;
-  padding: 3rem clamp(1rem, 4vw, 4.5rem);
+  padding-top: 3rem;
+  padding-bottom: 3rem;
   border-top: 1px solid var(--line);
   background: #050607;
 }
@@ -543,8 +561,15 @@ select option {
 }
 
 @media (max-width: 1050px) {
+  .site-header {
+    flex-wrap: wrap;
+  }
+
   .main-nav {
-    display: none;
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
   }
 
   .hero,
@@ -559,15 +584,68 @@ select option {
   .pricing-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .hero {
+    min-height: auto;
+  }
+
+  .hero-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    transform: none;
+  }
+
+  .main-rank {
+    min-height: auto;
+  }
 }
 
 @media (max-width: 680px) {
   .site-header {
-    align-items: flex-start;
+    align-items: center;
+    gap: 0.75rem;
   }
 
   .brand small {
     display: none;
+  }
+
+  .brand img {
+    width: 2.7rem;
+    height: 2.7rem;
+  }
+
+  .brand strong {
+    font-size: 0.95rem;
+  }
+
+  .header-actions {
+    margin-left: auto;
+    gap: 0.45rem;
+  }
+
+  .header-actions .primary-button,
+  .header-actions .ghost-button {
+    min-height: 2.35rem;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.86rem;
+  }
+
+  .main-nav {
+    gap: 0.55rem;
+    scrollbar-width: none;
+  }
+
+  .main-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .main-nav a {
+    flex: 0 0 auto;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.045);
+    font-size: 0.82rem;
   }
 
   .program-grid,
@@ -575,8 +653,46 @@ select option {
     grid-template-columns: 1fr;
   }
 
+  .hero {
+    gap: 2rem;
+    padding-top: 2rem;
+  }
+
   h1 {
-    font-size: 3.4rem;
+    font-size: clamp(3rem, 18vw, 4.2rem);
+  }
+
+  h2 {
+    font-size: clamp(1.8rem, 10vw, 2.55rem);
+  }
+
+  .hero-actions,
+  .auth-links,
+  .meta-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hero-actions .primary-button,
+  .hero-actions .ghost-button {
+    width: 100%;
+  }
+
+  .hero-board {
+    grid-template-columns: 1fr;
+  }
+
+  .rank-card strong {
+    font-size: 3rem;
+  }
+
+  .premium-card,
+  .plan-card,
+  .profile-panel,
+  .resource-panel,
+  .admin-form,
+  .resource-item {
+    padding: 1rem;
   }
 
   .resource-item header,
@@ -587,5 +703,71 @@ select option {
 
   .toolbar select {
     max-width: none;
+  }
+
+  .site-footer {
+    gap: 1.25rem;
+  }
+
+  .auth-panel {
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .site-header {
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+  }
+
+  .brand {
+    gap: 0.55rem;
+  }
+
+  .brand img {
+    width: 2.35rem;
+    height: 2.35rem;
+  }
+
+  .header-actions .primary-button,
+  .header-actions .ghost-button {
+    padding-inline: 0.55rem;
+  }
+
+  .hero-copy p:not(.eyebrow),
+  p {
+    line-height: 1.65;
+  }
+}
+
+@media (min-width: 1500px) {
+  .program-grid,
+  .pricing-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .strategy-band {
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 2200px) {
+  h1 {
+    font-size: 8.5rem;
+  }
+
+  h2 {
+    font-size: 3.9rem;
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr) minmax(36rem, 0.82fr);
+  }
+
+  .program-grid,
+  .pricing-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
