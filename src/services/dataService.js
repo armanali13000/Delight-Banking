@@ -195,10 +195,24 @@ export function getStudyTracking(email) {
 export function saveStudyTracking(email, tracking) {
   if (!email) throw new Error("Login required.");
   const allTracking = storage.get("db_tracking", {});
+  const defaultTracking = getDefaultTracking();
+  const nextTracking = {
+    ...defaultTracking,
+    ...normalizeTracking(allTracking[email]),
+    ...tracking
+  };
+
   allTracking[email] = {
-    ...getDefaultTracking(),
-    ...(allTracking[email] || {}),
-    ...tracking,
+    ...nextTracking,
+    weeklyHours: Array.isArray(nextTracking.weeklyHours) && nextTracking.weeklyHours.length === 7
+      ? nextTracking.weeklyHours.map((hours) => Number(hours || 0))
+      : defaultTracking.weeklyHours,
+    subjects: {
+      ...defaultTracking.subjects,
+      ...(nextTracking.subjects || {})
+    },
+    weekKey: getWeekKey(),
+    lastStudyDate: getDateKey(),
     updatedAt: new Date().toISOString()
   };
   storage.set("db_tracking", allTracking);
@@ -208,6 +222,8 @@ export function saveStudyTracking(email, tracking) {
 
 function getDefaultTracking() {
   return {
+    weekKey: getWeekKey(),
+    lastStudyDate: "",
     targetHours: 6,
     completedHours: 0,
     mocksAttempted: 0,
@@ -224,18 +240,51 @@ function getDefaultTracking() {
 
 function normalizeTracking(tracking) {
   if (!tracking || isDemoTracking(tracking)) return getDefaultTracking();
+  const defaultTracking = getDefaultTracking();
+  const trackingWeekKey = tracking.weekKey || getWeekKeyFromTimestamp(tracking.updatedAt);
+  const trackingDateKey = tracking.lastStudyDate || getDateKeyFromTimestamp(tracking.updatedAt);
+  const isCurrentWeek = trackingWeekKey === getWeekKey();
+  const isToday = trackingDateKey === getDateKey();
 
   return {
-    ...getDefaultTracking(),
+    ...defaultTracking,
     ...tracking,
-    weeklyHours: Array.isArray(tracking.weeklyHours) && tracking.weeklyHours.length === 7
+    weekKey: getWeekKey(),
+    lastStudyDate: isToday ? trackingDateKey : "",
+    completedHours: isToday ? Number(tracking.completedHours || 0) : 0,
+    weeklyHours: isCurrentWeek && Array.isArray(tracking.weeklyHours) && tracking.weeklyHours.length === 7
       ? tracking.weeklyHours.map((hours) => Number(hours || 0))
-      : getDefaultTracking().weeklyHours,
+      : defaultTracking.weeklyHours,
     subjects: {
-      ...getDefaultTracking().subjects,
+      ...defaultTracking.subjects,
       ...(tracking.subjects || {})
     }
   };
+}
+
+function getDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDateKeyFromTimestamp(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "" : getDateKey(date);
+}
+
+function getWeekKey(date = new Date()) {
+  const mondayIndex = (date.getDay() + 6) % 7;
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() - mondayIndex);
+  return getDateKey(monday);
+}
+
+function getWeekKeyFromTimestamp(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "" : getWeekKey(date);
 }
 
 function isDemoTracking(tracking) {
