@@ -488,6 +488,24 @@ p {
   gap: 1rem;
 }
 
+.desk-access-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.desk-pricing-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.desk-pricing-grid .plan-card {
+  padding: 1rem;
+}
+
+.desk-pricing-grid .price {
+  margin: 0.65rem 0;
+  font-size: 2rem;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);

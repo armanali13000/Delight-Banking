@@ -30,7 +30,7 @@ const examCards = [
 function Header({ user, onAuth, onLogout }) {
   const adminUrl = `${appBase}#admin`;
   const studentDeskUrl = `${appBase}#student-desk`;
-  const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "dark");
+  const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileVersion, setProfileVersion] = useState(0);
   const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
@@ -328,6 +328,7 @@ function StudentDeskPage() {
   const [exam, setExam] = useState(exams[0]);
   const [profile, setProfile] = useState({});
   const [profileMessage, setProfileMessage] = useState("");
+  const [accessVersion, setAccessVersion] = useState(0);
   const [deskView, setDeskView] = useState(() => {
     return window.location.hash === "#student-desk-profile" ? "profile" : "dashboard";
   });
@@ -363,14 +364,68 @@ function StudentDeskPage() {
     setProfile({});
   }
 
-  const visibleResources = useMemo(() => resources.filter((item) => item.exam === exam), [resources, exam]);
   const activeExams = user?.email ? getAccessMap()[user.email] || [] : [];
+  const selectedExam = activeExams.includes(exam) ? exam : activeExams[0] || "";
+  const visibleResources = useMemo(() => {
+    if (!selectedExam) return [];
+    return resources.filter((item) => item.exam === selectedExam && activeExams.includes(item.exam));
+  }, [resources, selectedExam, activeExams.join("|")]);
   const isAdminUser = Boolean(user?.email && adminEmails.includes(user.email));
-  const unlockedResources = resources.filter((item) => !item.premium || hasExamAccess(user, item.exam)).length;
-  const premiumResources = resources.filter((item) => item.premium).length;
+  const unlockedResources = visibleResources.filter((item) => !item.premium || hasExamAccess(user, item.exam)).length;
+  const premiumResources = visibleResources.filter((item) => item.premium).length;
   const studentName = profile.name || user?.displayName || user?.email?.split("@")[0] || "Guest Student";
   const todayPercent = Math.min(100, Math.round((Number(tracking.completedHours || 0) / Number(tracking.targetHours || 1)) * 100));
   const averageWeeklyHours = Math.round((tracking.weeklyHours.reduce((sum, item) => sum + Number(item || 0), 0) / tracking.weeklyHours.length) * 10) / 10;
+
+  useEffect(() => {
+    if (activeExams.length && !activeExams.includes(exam)) {
+      setExam(activeExams[0]);
+    }
+  }, [activeExams.join("|"), exam]);
+
+  void accessVersion;
+
+  function buyPlan(plan) {
+    if (!user) {
+      setAuthMode("signin");
+      return;
+    }
+
+    const activatePlan = () => {
+      activateAccess(user, plan.exam);
+      setExam(plan.exam);
+      setAccessVersion((value) => value + 1);
+      window.alert(`${plan.exam} access is active.`);
+    };
+
+    if (!window.Razorpay || paymentConfig.key.includes("PASTE_")) {
+      activatePlan();
+      return;
+    }
+
+    const checkout = new window.Razorpay({
+      key: paymentConfig.key,
+      amount: plan.price * 100,
+      currency: "INR",
+      name: paymentConfig.businessName,
+      description: `${plan.exam} access`,
+      prefill: { email: user.email, name: user.displayName || user.email },
+      theme: { color: "#d21f32" },
+      handler: activatePlan,
+      modal: {
+        ondismiss: () => {
+          window.alert("Payment window closed. Access was not activated.");
+        }
+      },
+      retry: {
+        enabled: true
+      }
+    });
+    checkout.on("payment.failed", (response) => {
+      window.alert(response.error?.description || "Payment failed. Please try again.");
+    });
+    checkout.open();
+  }
 
   function updateProfile(field, value) {
     setProfile((current) => ({ ...current, [field]: value }));
@@ -514,16 +569,26 @@ function StudentDeskPage() {
               <div>
                 <p className="eyebrow">Student Desk</p>
                 <h1 className="page-title">Your study dashboard</h1>
-                <p>Track preparation, resources, and profile details from one focused workspace.</p>
+                <p>
+                  {activeExams.length
+                    ? `Showing your ${selectedExam} workspace and resources.`
+                    : "Choose an exam access to unlock dashboard data and resources."}
+                </p>
               </div>
-              <select value={exam} onChange={(event) => setExam(event.target.value)} aria-label="Select exam">
-                {exams.map((item) => <option key={item}>{item}</option>)}
-              </select>
+              {activeExams.length ? (
+                <select value={selectedExam} onChange={(event) => setExam(event.target.value)} aria-label="Select active exam">
+                  {activeExams.map((item) => <option key={item}>{item}</option>)}
+                </select>
+              ) : (
+                <span className="status-pill">Access Required</span>
+              )}
             </div>
 
             {deskView === "dashboard" && (
               <div className="dashboard-view">
-                {!isAdminUser && (
+                {!activeExams.length ? (
+                  <AccessPlansPanel onBuyPlan={buyPlan} />
+                ) : !isAdminUser && (
                   <div className="desk-stats">
                     <article className="stat-card">
                       <span>Today's Progress</span>
@@ -543,44 +608,58 @@ function StudentDeskPage() {
                     </article>
                   </div>
                 )}
-                <div className="dashboard-grid">
-                  <StudyGraph tracking={tracking} />
-                  <SubjectProgress subjects={tracking.subjects} />
-                </div>
-                <div className="resource-panel">
-                  <div className="toolbar">
-                    <h2>Latest Resources</h2>
-                    <button className="ghost-button" type="button" onClick={() => setDeskView("resources")}>View All</button>
-                  </div>
-                  <ResourceList resources={visibleResources.slice(0, 3)} user={user} />
-                </div>
+                {activeExams.length && (
+                  <>
+                    <div className="dashboard-grid">
+                      <StudyGraph tracking={tracking} />
+                      <SubjectProgress subjects={tracking.subjects} />
+                    </div>
+                    <div className="resource-panel">
+                      <div className="toolbar">
+                        <h2>{selectedExam} Resources</h2>
+                        <button className="ghost-button" type="button" onClick={() => setDeskView("resources")}>View All</button>
+                      </div>
+                      <ResourceList resources={visibleResources.slice(0, 3)} user={user} />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
             {deskView === "tracking" && (
               <div className="tracking-view">
-                <div className="tracking-controls">
-                  <label>Daily Target Hours<input type="number" min="1" max="16" value={tracking.targetHours} onChange={(event) => updateTracking("targetHours", event.target.value)} /></label>
-                  <label>Completed Hours<input type="number" min="0" max="16" value={tracking.completedHours} onChange={(event) => updateTracking("completedHours", event.target.value)} /></label>
-                  <label>Mocks Attempted<input type="number" min="0" max="50" value={tracking.mocksAttempted} onChange={(event) => updateTracking("mocksAttempted", event.target.value)} /></label>
-                  <label>Accuracy %<input type="number" min="0" max="100" value={tracking.accuracy} onChange={(event) => updateTracking("accuracy", event.target.value)} /></label>
-                </div>
-                <div className="dashboard-grid">
-                  <StudyGraph tracking={tracking} />
-                  <SubjectProgress subjects={tracking.subjects} />
-                </div>
+                {!activeExams.length ? (
+                  <AccessPlansPanel onBuyPlan={buyPlan} />
+                ) : (
+                  <>
+                    <div className="tracking-controls">
+                      <label>Daily Target Hours<input type="number" min="1" max="16" value={tracking.targetHours} onChange={(event) => updateTracking("targetHours", event.target.value)} /></label>
+                      <label>Completed Hours<input type="number" min="0" max="16" value={tracking.completedHours} onChange={(event) => updateTracking("completedHours", event.target.value)} /></label>
+                      <label>Mocks Attempted<input type="number" min="0" max="50" value={tracking.mocksAttempted} onChange={(event) => updateTracking("mocksAttempted", event.target.value)} /></label>
+                      <label>Accuracy %<input type="number" min="0" max="100" value={tracking.accuracy} onChange={(event) => updateTracking("accuracy", event.target.value)} /></label>
+                    </div>
+                    <div className="dashboard-grid">
+                      <StudyGraph tracking={tracking} />
+                      <SubjectProgress subjects={tracking.subjects} />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
             {deskView === "resources" && (
               <div className="resource-panel">
-              <div className="toolbar">
-                <label htmlFor="exam">Exam</label>
-                <select id="exam" value={exam} onChange={(event) => setExam(event.target.value)}>
-                  {exams.map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </div>
-              <ResourceList resources={visibleResources} user={user} />
+                {!activeExams.length ? (
+                  <AccessPlansPanel onBuyPlan={buyPlan} />
+                ) : (
+                  <div className="toolbar">
+                    <div>
+                      <p className="eyebrow">Resources</p>
+                      <h2>{selectedExam} library</h2>
+                    </div>
+                  </div>
+                )}
+                {activeExams.length && <ResourceList resources={visibleResources} user={user} />}
               </div>
             )}
 
@@ -610,6 +689,33 @@ function StudentDeskPage() {
         />
       )}
     </>
+  );
+}
+
+function AccessPlansPanel({ onBuyPlan }) {
+  return (
+    <section className="desk-access-panel">
+      <div className="toolbar">
+        <div>
+          <p className="eyebrow">Exam Access</p>
+          <h2>Choose your exam workspace</h2>
+          <p>Dashboard data, study tracking, and resources appear after access is active for that exam.</p>
+        </div>
+      </div>
+      <div className="pricing-grid desk-pricing-grid">
+        {plans.map((plan) => (
+          <article className={`plan-card ${plan.featured ? "featured" : ""}`} key={plan.id}>
+            <span className="chip">{plan.exam}</span>
+            <h3>{plan.title}</h3>
+            <div className="price">₹{plan.price}</div>
+            <ul>
+              {plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}
+            </ul>
+            <button className="primary-button full" type="button" onClick={() => onBuyPlan(plan)}>Buy Access</button>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
