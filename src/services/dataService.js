@@ -189,7 +189,7 @@ export function getAccessMap() {
 export function getStudyTracking(email) {
   if (!email) return getDefaultTracking();
   const allTracking = storage.get("db_tracking", {});
-  return allTracking[email] || getDefaultTracking();
+  return normalizeTracking(allTracking[email]);
 }
 
 export function saveStudyTracking(email, tracking) {
@@ -209,17 +209,54 @@ export function saveStudyTracking(email, tracking) {
 function getDefaultTracking() {
   return {
     targetHours: 6,
-    completedHours: 2,
-    mocksAttempted: 1,
-    accuracy: 72,
-    weeklyHours: [2, 3, 1.5, 4, 2.5, 5, 3.5],
+    completedHours: 0,
+    mocksAttempted: 0,
+    accuracy: 0,
+    weeklyHours: [0, 0, 0, 0, 0, 0, 0],
     subjects: {
-      Quant: 65,
-      Reasoning: 78,
-      English: 58,
-      "Current Affairs": 45
+      Quant: 0,
+      Reasoning: 0,
+      English: 0,
+      "Current Affairs": 0
     }
   };
+}
+
+function normalizeTracking(tracking) {
+  if (!tracking || isDemoTracking(tracking)) return getDefaultTracking();
+
+  return {
+    ...getDefaultTracking(),
+    ...tracking,
+    weeklyHours: Array.isArray(tracking.weeklyHours) && tracking.weeklyHours.length === 7
+      ? tracking.weeklyHours.map((hours) => Number(hours || 0))
+      : getDefaultTracking().weeklyHours,
+    subjects: {
+      ...getDefaultTracking().subjects,
+      ...(tracking.subjects || {})
+    }
+  };
+}
+
+function isDemoTracking(tracking) {
+  if (tracking.updatedAt) return false;
+
+  const demoHours = [2, 3, 1.5, 4, 2.5, 5, 3.5];
+  const demoSubjects = {
+    Quant: 65,
+    Reasoning: 78,
+    English: 58,
+    "Current Affairs": 45
+  };
+
+  return (
+    Number(tracking.completedHours) === 2 &&
+    Number(tracking.mocksAttempted) === 1 &&
+    Number(tracking.accuracy) === 72 &&
+    Array.isArray(tracking.weeklyHours) &&
+    tracking.weeklyHours.every((hours, index) => Number(hours) === demoHours[index]) &&
+    Object.entries(demoSubjects).every(([subject, value]) => Number(tracking.subjects?.[subject]) === value)
+  );
 }
 
 export function getLocalStudents() {
@@ -234,7 +271,7 @@ export function getLocalStudents() {
       ...student,
       ...profile,
       activeExams: access[student.email] || [],
-      tracking: tracking[student.email] || student.tracking || getDefaultTracking()
+      tracking: normalizeTracking(tracking[student.email] || student.tracking)
     };
   });
 }
@@ -255,7 +292,7 @@ export async function getStudents() {
         ...(byEmail.get(student.email) || {}),
         ...student,
         activeExams: student.activeExams || [],
-        tracking: student.tracking || getDefaultTracking()
+        tracking: normalizeTracking(student.tracking)
       });
     });
 
@@ -321,7 +358,7 @@ function rememberStudent(user, extra = {}) {
     address: extra.address || existing.address || "",
     targetExam: extra.targetExam || existing.targetExam || "",
     activeExams: extra.activeExams || access[user.email] || existing.activeExams || [],
-    tracking: extra.tracking || existing.tracking || getStudyTracking(user.email),
+    tracking: normalizeTracking(extra.tracking || existing.tracking || getStudyTracking(user.email)),
     lastSeenAt: new Date().toISOString()
   };
 

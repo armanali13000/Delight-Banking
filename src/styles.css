@@ -518,6 +518,10 @@ p {
   padding: 1.1rem;
 }
 
+.subject-inputs {
+  border-color: rgba(255, 102, 117, 0.18);
+}
+
 .bar-graph {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

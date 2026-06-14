@@ -462,6 +462,18 @@ function StudentDeskPage() {
     if (user?.email) saveStudyTracking(user.email, next);
   }
 
+  function updateSubjectProgress(subject, value) {
+    const next = {
+      ...tracking,
+      subjects: {
+        ...tracking.subjects,
+        [subject]: Number(value)
+      }
+    };
+    setTracking(next);
+    if (user?.email) saveStudyTracking(user.email, next);
+  }
+
   if (!authReady) {
     return (
       <>
@@ -638,6 +650,11 @@ function StudentDeskPage() {
                       <label>Mocks Attempted<input type="number" min="0" max="50" value={tracking.mocksAttempted} onChange={(event) => updateTracking("mocksAttempted", event.target.value)} /></label>
                       <label>Accuracy %<input type="number" min="0" max="100" value={tracking.accuracy} onChange={(event) => updateTracking("accuracy", event.target.value)} /></label>
                     </div>
+                    <div className="tracking-controls subject-inputs">
+                      {Object.entries(tracking.subjects).map(([subject, value]) => (
+                        <label key={subject}>{subject}<input type="number" min="0" max="100" value={value} onChange={(event) => updateSubjectProgress(subject, event.target.value)} /></label>
+                      ))}
+                    </div>
                     <div className="dashboard-grid">
                       <StudyGraph tracking={tracking} />
                       <SubjectProgress subjects={tracking.subjects} />
@@ -736,7 +753,7 @@ function StudyGraph({ tracking }) {
         {tracking.weeklyHours.map((hours, index) => (
           <div className="bar-column" key={`${days[index]}-${index}`}>
             <div className="bar-track">
-              <span style={{ height: `${Math.max(8, (hours / maxHours) * 100)}%` }}></span>
+              <span style={{ height: hours > 0 ? `${Math.max(8, (hours / maxHours) * 100)}%` : "0%" }}></span>
             </div>
             <strong>{days[index]}</strong>
             <small>{hours}h</small>
