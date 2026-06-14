@@ -12,6 +12,8 @@ export const firebaseConfig = {
 };
 
 export const paymentConfig = {
+  // Add your Razorpay Key ID here. It looks like rzp_test_xxxxx or rzp_live_xxxxx.
+  // Do not put the Razorpay Key Secret in this frontend file.
   key: "PASTE_PAYMENT_KEY_ID",
   businessName: "Delight Banking",
   description: "Exam access activation"

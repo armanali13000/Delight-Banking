@@ -113,3 +113,21 @@ https://armanali13000.github.io/Delight-Banking/#admin
 
 If the site still shows a white page, open GitHub Pages settings again and make
 sure it is not set to `/root`. It must be `/docs`.
+
+## Payment Setup
+
+Add your Razorpay Key ID in `src/config.js`:
+
+```js
+export const paymentConfig = {
+  key: "rzp_test_xxxxxxxxxx",
+  businessName: "Delight Banking",
+  description: "Exam access activation"
+};
+```
+
+Use the Key ID only. Do not put the Key Secret in frontend code.
+
+The current checkout can open the payment window and activate access after a
+successful checkout callback. For production, add a small backend or Firebase
+Cloud Function to verify the payment before granting access.

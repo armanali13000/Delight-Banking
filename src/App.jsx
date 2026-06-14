@@ -23,6 +23,13 @@ const examCards = [
 
 function Header({ user, onAuth, onLogout }) {
   const adminUrl = `${appBase}#admin`;
+  const studentDeskUrl = `${appBase}#student-desk`;
+  const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "dark");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("db_theme", theme);
+  }, [theme]);
 
   return (
     <header className="site-header">
@@ -31,10 +38,17 @@ function Header({ user, onAuth, onLogout }) {
         <a href={`${appBase}#programs`}>Exams</a>
         <a href={`${appBase}#strategy`}>Strategy</a>
         <a href={`${appBase}#plans`}>Plans</a>
-        <a href={`${appBase}#resources`}>Resources</a>
+        <a href={studentDeskUrl}>Student Desk</a>
         <a href={adminUrl}>Admin</a>
       </nav>
       <div className="header-actions">
+        <button
+          className="ghost-button theme-button"
+          type="button"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
+          {theme === "dark" ? "Light" : "Dark"}
+        </button>
         {user ? (
           <button className="ghost-button" type="button" onClick={onLogout}>Logout</button>
         ) : (
@@ -52,16 +66,10 @@ function HomePage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
   const [resources, setResources] = useState([]);
-  const [exam, setExam] = useState(exams[0]);
 
   useEffect(() => {
     listenToAuth(setUser);
-    refreshResources();
   }, []);
-
-  async function refreshResources() {
-    setResources(await getResources());
-  }
 
   async function logout() {
     await signOutUser();
@@ -78,6 +86,7 @@ function HomePage() {
       activateAccess(user, plan.exam);
       setResources([...resources]);
       window.alert(`${plan.exam} access activated in demo mode.`);
+      window.location.hash = "student-desk";
       return;
     }
 
@@ -93,12 +102,22 @@ function HomePage() {
         activateAccess(user, plan.exam);
         setResources([...resources]);
         window.alert(`${plan.exam} access is active.`);
+        window.location.hash = "student-desk";
+      },
+      modal: {
+        ondismiss: () => {
+          window.alert("Payment window closed. Access was not activated.");
+        }
+      },
+      retry: {
+        enabled: true
       }
+    });
+    checkout.on("payment.failed", (response) => {
+      window.alert(response.error?.description || "Payment failed. Please try again.");
     });
     checkout.open();
   }
-
-  const visibleResources = useMemo(() => resources.filter((item) => item.exam === exam), [resources, exam]);
 
   return (
     <>
@@ -114,7 +133,7 @@ function HomePage() {
             </p>
             <div className="hero-actions">
               <a className="primary-button" href="#plans">Choose Access</a>
-              <a className="ghost-button" href="#resources">Student Desk</a>
+              <a className="ghost-button" href="#student-desk">Student Desk</a>
             </div>
           </div>
           <div className="hero-board" aria-hidden="true">
@@ -186,11 +205,52 @@ function HomePage() {
             ))}
           </div>
         </section>
+      </main>
+      <Footer />
+      {authMode && (
+        <AuthModal
+          mode={authMode}
+          onClose={() => setAuthMode(null)}
+          onUser={(nextUser) => {
+            setUser(nextUser);
+            window.location.hash = "student-desk";
+          }}
+        />
+      )}
+    </>
+  );
+}
 
-        <section className="section" id="resources">
+function StudentDeskPage() {
+  const [authMode, setAuthMode] = useState(null);
+  const [user, setUser] = useState(null);
+  const [resources, setResources] = useState([]);
+  const [exam, setExam] = useState(exams[0]);
+
+  useEffect(() => {
+    listenToAuth(setUser);
+    refreshResources();
+  }, []);
+
+  async function refreshResources() {
+    setResources(await getResources());
+  }
+
+  async function logout() {
+    await signOutUser();
+    setUser(null);
+  }
+
+  const visibleResources = useMemo(() => resources.filter((item) => item.exam === exam), [resources, exam]);
+
+  return (
+    <>
+      <Header user={user} onAuth={setAuthMode} onLogout={logout} />
+      <main className="desk-page">
+        <section className="section" id="student-desk">
           <div className="section-heading">
             <p className="eyebrow">Student Desk</p>
-            <h2>Resources unlock after access activation</h2>
+            <h1 className="page-title">Your study dashboard</h1>
             <p>Login and activate an exam plan to view mentor resources, study targets, and current affairs.</p>
           </div>
           <div className="student-grid">
@@ -200,6 +260,7 @@ function HomePage() {
               <p>{user?.email || "Login to sync your access."}</p>
               <span className="status-pill">{hasExamAccess(user, exam) ? `${exam} active` : "No active access"}</span>
               {!user && <button className="primary-button full" type="button" onClick={() => setAuthMode("signin")}>Login to Continue</button>}
+              {user && <a className="ghost-button full" href={`${appBase}#plans`}>Buy Exam Access</a>}
             </aside>
             <div className="resource-panel">
               <div className="toolbar">
@@ -235,7 +296,16 @@ function HomePage() {
         </section>
       </main>
       <Footer />
-      {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}
+      {authMode && (
+        <AuthModal
+          mode={authMode}
+          onClose={() => setAuthMode(null)}
+          onUser={(nextUser) => {
+            setUser(nextUser);
+            window.location.hash = "student-desk";
+          }}
+        />
+      )}
     </>
   );
 }
@@ -255,7 +325,7 @@ function Footer() {
         <h4>Platform</h4>
         <a href={`${appBase}#strategy`}>Strategy</a>
         <a href={`${appBase}#plans`}>Access Plans</a>
-        <a href={`${appBase}#resources`}>Student Desk</a>
+        <a href={`${appBase}#student-desk`}>Student Desk</a>
         <a href={`${appBase}#admin`}>Admin</a>
       </div>
       <div>
@@ -374,5 +444,8 @@ export default function App() {
   }, []);
 
   const isAdminRoute = route.endsWith("#admin") || route.endsWith("/admin");
-  return isAdminRoute ? <AdminPage /> : <HomePage />;
+  const isStudentDeskRoute = route.endsWith("#student-desk") || route.endsWith("/student-desk");
+  if (isAdminRoute) return <AdminPage />;
+  if (isStudentDeskRoute) return <StudentDeskPage />;
+  return <HomePage />;
 }
