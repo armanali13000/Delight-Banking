@@ -79,3 +79,34 @@ firebase deploy
 
 The included `firebase.json` deploys the `dist` folder and rewrites `/admin`
 to the React app.
+
+## GitHub Pages
+
+For GitHub Pages, the simplest setup is:
+
+```bash
+npm.cmd run build
+git add .
+git commit -m "Build for GitHub Pages"
+git push
+```
+
+Then set GitHub Pages to:
+
+```text
+Source: Deploy from a branch
+Branch: main
+Folder: /docs
+```
+
+The site URL will be:
+
+```text
+https://armanali13000.github.io/Delight-Banking/
+```
+
+Admin opens at:
+
+```text
+https://armanali13000.github.io/Delight-Banking/#admin
+```
