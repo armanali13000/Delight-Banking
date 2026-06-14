@@ -782,9 +782,9 @@ function AdminPage() {
             <div className="gate-logo">
               <Brand small="Admin Control" />
             </div>
-            <div>
+            <div className="gate-copy">
               <p className="eyebrow">Secure Control Room</p>
-              <h1>Admin login required</h1>
+              <h1>Admin access</h1>
               <p>
                 Publish resources, review student details, and manage premium learning access from a protected workspace.
               </p>
