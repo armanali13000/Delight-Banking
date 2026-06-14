@@ -323,6 +323,7 @@ function HomePage() {
 function StudentDeskPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [resources, setResources] = useState([]);
   const [exam, setExam] = useState(exams[0]);
   const [profile, setProfile] = useState({});
@@ -337,6 +338,7 @@ function StudentDeskPage() {
       setUser(nextUser);
       setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {});
       setTracking(nextUser?.email ? getStudyTracking(nextUser.email) : getStudyTracking(""));
+      setAuthReady(true);
     });
     refreshResources();
   }, []);
@@ -403,6 +405,73 @@ function StudentDeskPage() {
     }
     setTracking(next);
     if (user?.email) saveStudyTracking(user.email, next);
+  }
+
+  if (!authReady) {
+    return (
+      <>
+        <Header user={user} onAuth={setAuthMode} onLogout={logout} />
+        <main className="desk-page">
+          <section className="admin-gate">
+            <div className="premium-card gate-card student-login-gate">
+              <Brand small="Student Desk" />
+              <div className="gate-copy">
+                <p className="eyebrow">Checking Access</p>
+                <h1>Loading desk</h1>
+                <p>Please wait while we verify your login session.</p>
+              </div>
+            </div>
+          </section>
+        </main>
+        <Footer />
+      </>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <Header user={user} onAuth={setAuthMode} onLogout={logout} />
+        <main className="desk-page">
+          <section className="admin-gate">
+            <div className="premium-card gate-card student-login-gate">
+              <div className="gate-logo">
+                <Brand small="Student Desk" />
+              </div>
+              <div className="gate-copy">
+                <p className="eyebrow">Premium Learning Area</p>
+                <h1>Login to open Student Desk</h1>
+                <p>
+                  Sign in to view your study dashboard, exam resources, subscription details,
+                  profile, and daily tracking.
+                </p>
+              </div>
+              <div className="gate-feature-grid">
+                <span>Study Graph</span>
+                <span>Premium Resources</span>
+                <span>Profile Sync</span>
+              </div>
+              <div className="form-actions">
+                <button className="primary-button" type="button" onClick={() => setAuthMode("signin")}>Login</button>
+                <button className="ghost-button" type="button" onClick={() => setAuthMode("signup")}>Create Account</button>
+              </div>
+            </div>
+          </section>
+        </main>
+        <Footer />
+        {authMode && (
+          <AuthModal
+            mode={authMode}
+            onClose={() => setAuthMode(null)}
+            onUser={(nextUser) => {
+              setUser(nextUser);
+              setAuthMode(null);
+              window.location.hash = "student-desk";
+            }}
+          />
+        )}
+      </>
+    );
   }
 
   return (

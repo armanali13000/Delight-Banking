@@ -1189,6 +1189,14 @@ select option {
   background: rgba(210, 31, 50, 0.1);
 }
 
+.student-login-gate .gate-copy h1 {
+  font-size: clamp(1.9rem, 5vw, 2.75rem);
+}
+
+.student-login-gate .form-actions {
+  margin-top: 0.25rem;
+}
+
 .admin-hero h1 {
   font-size: clamp(2.8rem, 6vw, 5.4rem);
 }
