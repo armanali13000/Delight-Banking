@@ -2,12 +2,13 @@ export const appBase = import.meta.env.BASE_URL || "/Delight-Banking/";
 export const logoPath = `${appBase}delight-logo.png`;
 
 export const firebaseConfig = {
-  apiKey: "PASTE_FIREBASE_API_KEY",
-  authDomain: "PASTE_FIREBASE_AUTH_DOMAIN",
-  projectId: "PASTE_FIREBASE_PROJECT_ID",
-  storageBucket: "PASTE_FIREBASE_STORAGE_BUCKET",
-  messagingSenderId: "PASTE_FIREBASE_MESSAGING_SENDER_ID",
-  appId: "PASTE_FIREBASE_APP_ID"
+  apiKey: "AIzaSyBbV7wiITBK0vCTJ9LOOXlWrmyfha1d3n4",
+  authDomain: "delight-banking.firebaseapp.com",
+  projectId: "delight-banking",
+  storageBucket: "delight-banking.firebasestorage.app",
+  messagingSenderId: "598377619885",
+  appId: "1:598377619885:web:73745af0dc6ee6e0560124",
+  measurementId: "G-SQE0Y2WH6Q"
 };
 
 export const paymentConfig = {
