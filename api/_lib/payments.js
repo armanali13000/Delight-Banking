@@ -55,14 +55,11 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
   const db = getDb();
   const now = new Date();
 
-  const activeExisting = await db.collection("subscriptions")
-    .where("userId", "==", user.uid)
-    .where("variantId", "==", variant.variantId)
-    .where("status", "==", "active")
-    .where("accessEndAt", ">", now)
-    .limit(1)
-    .get();
-  const isExtension = !activeExisting.empty;
+  const subscriptionId = `${user.uid}_${variant.variantId}`;
+  const subscriptionSnap = await db.collection("subscriptions").doc(subscriptionId).get();
+  const existingSubscription = subscriptionSnap.exists ? subscriptionSnap.data() : null;
+  const existingEnd = existingSubscription?.accessEndAt?.toDate ? existingSubscription.accessEndAt.toDate() : null;
+  const isExtension = existingSubscription?.status === "active" && existingEnd && existingEnd > now;
 
   const receipt = makeInternalOrderNumber();
   const razorpayOrder = await getRazorpay().orders.create({
@@ -338,5 +335,6 @@ function serializePayment(id, data) {
 function serializeOrder(id, data) {
   return { id, ...data, createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt), paidAt: serializeDate(data.paidAt), failedAt: serializeDate(data.failedAt), accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt) };
 }
+
 
 

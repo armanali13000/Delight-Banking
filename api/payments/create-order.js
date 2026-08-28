@@ -18,6 +18,7 @@ export default async function handler(req, res) {
     sendJson(res, 200, result);
   } catch (error) {
     console.error(error);
-    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : "Server could not complete the request." });
+    sendJson(res, error.statusCode || 500, { error: error.safeMessage || (error.statusCode ? error.message : "Server could not complete the request.") });
   }
 }
+
