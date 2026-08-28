@@ -66,7 +66,7 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
   } catch (cause) {
     const error = new Error("Could not read subscription state.");
     error.statusCode = 500;
-    error.safeMessage = "Firestore could not read subscriptions. Check Firebase Admin service account permissions and Firestore database setup.";
+    error.safeMessage = `Firestore could not read subscriptions (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
     error.cause = cause;
     throw error;
   }
@@ -120,7 +120,7 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
   } catch (cause) {
     const error = new Error("Could not store pending order.");
     error.statusCode = 500;
-    error.safeMessage = "Firestore could not store the pending order. Check Firebase Admin service account permissions and Firestore database setup.";
+    error.safeMessage = `Firestore could not store the pending order (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
     error.cause = cause;
     throw error;
   }
@@ -363,6 +363,7 @@ function serializePayment(id, data) {
 function serializeOrder(id, data) {
   return { id, ...data, createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt), paidAt: serializeDate(data.paidAt), failedAt: serializeDate(data.failedAt), accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt) };
 }
+
 
 
 
