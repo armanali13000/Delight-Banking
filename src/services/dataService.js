@@ -182,10 +182,6 @@ function getFirebaseWriteError(error) {
   return error?.message || "Resource could not be saved.";
 }
 
-export function getAccessMap() {
-  return storage.get("db_access", {});
-}
-
 export function getStudyTracking(email) {
   if (!email) return getDefaultTracking();
   const allTracking = storage.get("db_tracking", {});
@@ -311,7 +307,6 @@ function isDemoTracking(tracking) {
 export function getLocalStudents() {
   const students = storage.get("db_students", {});
   const profiles = storage.get("db_profiles", {});
-  const access = getAccessMap();
   const tracking = storage.get("db_tracking", {});
 
   return Object.values(students).filter((student) => !isAdminEmail(student.email)).map((student) => {
@@ -319,7 +314,7 @@ export function getLocalStudents() {
     return {
       ...student,
       ...profile,
-      activeExams: access[student.email] || [],
+      activeExams: [],
       tracking: normalizeTracking(tracking[student.email] || student.tracking)
     };
   });
@@ -371,21 +366,75 @@ export function saveUserProfile(email, profile) {
   return profiles[email];
 }
 
-export function hasExamAccess(user, exam) {
-  if (!user) return false;
-  return Boolean(getAccessMap()[user.email]?.includes(exam));
+export async function getAuthToken() {
+  const fb = await getFirebase();
+  if (!fb?.auth?.currentUser) throw new Error("Login required.");
+  return fb.auth.currentUser.getIdToken();
 }
 
-export function activateAccess(user, exam) {
-  if (!user) throw new Error("Login required.");
-  const access = getAccessMap();
-  const active = new Set(access[user.email] || []);
-  active.add(exam);
-  access[user.email] = [...active];
-  storage.set("db_access", access);
-  rememberStudent(user, { activeExams: access[user.email] });
+async function apiFetch(path, options = {}) {
+  const token = await getAuthToken();
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {})
+    }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Request failed.");
+  return data;
 }
 
+export function getActiveSubscriptions(summary) {
+  const now = Date.now();
+  return (summary?.subscriptions || []).filter((item) => {
+    return item.status === "active" && item.accessEndAt && new Date(item.accessEndAt).getTime() > now;
+  });
+}
+
+export function getActivePlanIds(summary) {
+  return new Set(getActiveSubscriptions(summary).map((item) => item.planId));
+}
+
+export function getActiveAccessTags(summary) {
+  const tags = new Set();
+  getActiveSubscriptions(summary).forEach((item) => {
+    (item.accessTags || []).forEach((tag) => tags.add(tag));
+  });
+  return tags;
+}
+
+export function hasResourceAccess(resource, summary) {
+  if (!resource.premium) return true;
+  const activePlanIds = getActivePlanIds(summary);
+  const activeTags = getActiveAccessTags(summary);
+  if (Array.isArray(resource.planTags) && resource.planTags.some((planId) => activePlanIds.has(planId))) return true;
+  return Boolean(resource.exam && activeTags.has(resource.exam));
+}
+
+export async function createPaymentOrder(variantId, billing) {
+  return apiFetch("/api/payments/create-order", {
+    method: "POST",
+    body: JSON.stringify({ variantId, billing })
+  });
+}
+
+export async function verifyPayment(payload) {
+  return apiFetch("/api/payments/verify", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getOrderStatus(orderId) {
+  return apiFetch(`/api/payments/order/${encodeURIComponent(orderId)}`);
+}
+
+export async function getPaymentSummary() {
+  return apiFetch("/api/users/me/payments");
+}
 function rememberStudent(user, extra = {}) {
   if (!user?.email) return;
   if (isAdminEmail(user.email)) {
@@ -395,7 +444,6 @@ function rememberStudent(user, extra = {}) {
 
   const students = storage.get("db_students", {});
   const existing = students[user.email] || {};
-  const access = getAccessMap();
   const student = {
     ...existing,
     uid: user.uid || existing.uid || user.email,
@@ -406,7 +454,7 @@ function rememberStudent(user, extra = {}) {
     city: extra.city || existing.city || "",
     address: extra.address || existing.address || "",
     targetExam: extra.targetExam || existing.targetExam || "",
-    activeExams: extra.activeExams || access[user.email] || existing.activeExams || [],
+    activeExams: extra.activeExams || existing.activeExams || [],
     tracking: normalizeTracking(extra.tracking || existing.tracking || getStudyTracking(user.email)),
     lastSeenAt: new Date().toISOString()
   };
@@ -421,7 +469,7 @@ async function syncStudentToFirestore(student) {
   if (!fb) return;
 
   try {
-    const id = encodeURIComponent(student.email);
+    const id = student.uid;
     await fb.firestoreModule.setDoc(
       fb.firestoreModule.doc(fb.db, "students", id),
       student,
@@ -431,3 +479,7 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
+
+
+

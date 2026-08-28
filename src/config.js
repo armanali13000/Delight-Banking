@@ -1,80 +1,40 @@
-export const appBase = import.meta.env.BASE_URL || "/Delight-Banking/";
+import catalog from "../data/plans.json";
+
+export const appBase = import.meta.env.BASE_URL || "/";
 export const logoPath = `${appBase}delight-logo.png`;
+export const mentorPhotoPath = `${appBase}imran-sir-mentor.jpg`;
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyBbV7wiITBK0vCTJ9LOOXlWrmyfha1d3n4",
-  authDomain: "delight-banking.firebaseapp.com",
-  projectId: "delight-banking",
-  storageBucket: "delight-banking.firebasestorage.app",
-  messagingSenderId: "598377619885",
-  appId: "1:598377619885:web:73745af0dc6ee6e0560124",
-  measurementId: "G-SQE0Y2WH6Q"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBbV7wiITBK0vCTJ9LOOXlWrmyfha1d3n4",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "delight-banking.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "delight-banking",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "delight-banking.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "598377619885",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:598377619885:web:73745af0dc6ee6e0560124",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-SQE0Y2WH6Q"
 };
 
 export const paymentConfig = {
-  // Add your Razorpay Key ID here. It looks like rzp_test_xxxxx or rzp_live_xxxxx.
-  // Do not put the Razorpay Key Secret in this frontend file.
-  key: "rzp_test_SjbbpCi29mVcPQ",
+  key: import.meta.env.VITE_RAZORPAY_KEY_ID || "",
   businessName: "Delight Banking",
-  description: "Exam access activation"
+  description: "Educational mentorship and guidance services"
 };
 
 export const adminEmails = ["darkdevil7325@gmail.com"];
-
 export const exams = ["SBI PO", "SBI Clerk", "IBPS PO", "IBPS Clerk", "RRB PO", "RRB Clerk"];
+export const plans = catalog.plans;
+export const planVariants = plans.flatMap((plan) => plan.variants.map((variant) => ({ ...variant, plan })));
 
-export const plans = [
-  {
-    id: "sbi-po",
-    exam: "SBI PO",
-    title: "SBI PO Elite",
-    price: 999,
-    featured: true,
-    benefits: ["Prelims to interview roadmap", "Mains mock review system", "Daily banking awareness"]
-  },
-  {
-    id: "sbi-clerk",
-    exam: "SBI Clerk",
-    title: "SBI Clerk Sprint",
-    price: 699,
-    benefits: ["Speed-building drills", "Sectional target sheets", "Revision calendar"]
-  },
-  {
-    id: "ibps-po",
-    exam: "IBPS PO",
-    title: "IBPS PO Prime",
-    price: 899,
-    featured: true,
-    benefits: ["Mains-focused strategy", "GA and banking plan", "Weekly mentor targets"]
-  },
-  {
-    id: "ibps-clerk",
-    exam: "IBPS Clerk",
-    title: "IBPS Clerk Plus",
-    price: 649,
-    benefits: ["Foundation study path", "Accuracy improvement routine", "Daily practice goals"]
-  },
-  {
-    id: "rrb-po",
-    exam: "RRB PO",
-    title: "RRB PO Command",
-    price: 799,
-    benefits: ["Regional bank focus", "Financial awareness notes", "Interview guidance"]
-  },
-  {
-    id: "rrb-clerk",
-    exam: "RRB Clerk",
-    title: "RRB Clerk Focus",
-    price: 599,
-    benefits: ["Cut-off based planning", "Daily study targets", "Current affairs revision"]
-  }
-];
+export function getPlanVariant(variantId) {
+  return planVariants.find((item) => item.variantId === variantId) || null;
+}
 
 export const seedResources = [
   {
     id: "seed-current-affairs",
     title: "Daily Current Affairs Pack",
     exam: "SBI PO",
+    planTags: ["jigra", "gati", "personal-coaching", "pickup"],
     type: "Current Affairs",
     premium: true,
     url: "",
@@ -84,6 +44,7 @@ export const seedResources = [
     id: "seed-study-plan",
     title: "30-Day Prelims Study Plan",
     exam: "IBPS Clerk",
+    planTags: ["gati", "begin", "personal-coaching", "pickup"],
     type: "Study Plan",
     premium: true,
     url: "",
@@ -93,6 +54,7 @@ export const seedResources = [
     id: "seed-strategy",
     title: "Mock Test Analysis Method",
     exam: "RRB PO",
+    planTags: ["jigra", "gati", "personal-coaching"],
     type: "Strategy",
     premium: false,
     url: "",
