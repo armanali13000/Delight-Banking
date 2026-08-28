@@ -1,4 +1,6 @@
-import admin from "firebase-admin";
+import { cert, getApp, getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 
 function required(name) {
   const value = process.env[name];
@@ -19,10 +21,10 @@ function privateKey() {
 }
 
 export function getAdminApp() {
-  if (admin.apps.length) return admin.app();
+  if (getApps().length) return getApp();
   try {
-    return admin.initializeApp({
-      credential: admin.credential.cert({
+    return initializeApp({
+      credential: cert({
         projectId: required("FIREBASE_PROJECT_ID"),
         clientEmail: required("FIREBASE_CLIENT_EMAIL"),
         privateKey: privateKey()
@@ -38,7 +40,7 @@ export function getAdminApp() {
 }
 
 export function getDb() {
-  return getAdminApp().firestore();
+  return getFirestore(getAdminApp());
 }
 
 export async function requireUser(req) {
@@ -50,7 +52,7 @@ export async function requireUser(req) {
     throw error;
   }
   try {
-    return await getAdminApp().auth().verifyIdToken(match[1]);
+    return await getAuth(getAdminApp()).verifyIdToken(match[1]);
   } catch (cause) {
     if (cause.safeMessage) throw cause;
     const error = new Error("Invalid login session.");
@@ -60,5 +62,5 @@ export async function requireUser(req) {
   }
 }
 
-export const serverTimestamp = admin.firestore.FieldValue.serverTimestamp;
-export const fieldValue = admin.firestore.FieldValue;
+export const serverTimestamp = FieldValue.serverTimestamp;
+export const fieldValue = FieldValue;
