@@ -28,7 +28,8 @@ export async function readRawBody(req) {
 
 export function handleError(res, error) {
   const status = error.statusCode || 500;
-  const message = status >= 500 ? "Server could not complete the request." : error.message;
+  const message = error.safeMessage || (status >= 500 ? "Server could not complete the request." : error.message);
   if (status >= 500) console.error(error);
   sendJson(res, status, { error: message });
 }
+

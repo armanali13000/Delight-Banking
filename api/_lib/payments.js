@@ -7,6 +7,7 @@ function getRazorpay() {
   if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
     const error = new Error("Razorpay server keys are not configured.");
     error.statusCode = 500;
+    error.safeMessage = "Razorpay server keys are not configured. Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Vercel.";
     throw error;
   }
   return new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
@@ -55,47 +56,74 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
   const db = getDb();
   const now = new Date();
 
-  const subscriptionId = `${user.uid}_${variant.variantId}`;
-  const subscriptionSnap = await db.collection("subscriptions").doc(subscriptionId).get();
-  const existingSubscription = subscriptionSnap.exists ? subscriptionSnap.data() : null;
-  const existingEnd = existingSubscription?.accessEndAt?.toDate ? existingSubscription.accessEndAt.toDate() : null;
-  const isExtension = existingSubscription?.status === "active" && existingEnd && existingEnd > now;
+  let isExtension = false;
+  try {
+    const subscriptionId = `${user.uid}_${variant.variantId}`;
+    const subscriptionSnap = await db.collection("subscriptions").doc(subscriptionId).get();
+    const existingSubscription = subscriptionSnap.exists ? subscriptionSnap.data() : null;
+    const existingEnd = existingSubscription?.accessEndAt?.toDate ? existingSubscription.accessEndAt.toDate() : null;
+    isExtension = existingSubscription?.status === "active" && existingEnd && existingEnd > now;
+  } catch (cause) {
+    const error = new Error("Could not read subscription state.");
+    error.statusCode = 500;
+    error.safeMessage = "Firestore could not read subscriptions. Check Firebase Admin service account permissions and Firestore database setup.";
+    error.cause = cause;
+    throw error;
+  }
 
   const receipt = makeInternalOrderNumber();
-  const razorpayOrder = await getRazorpay().orders.create({
-    amount: snapshot.priceInPaise,
-    currency: snapshot.currency,
-    receipt,
-    notes: {
+  let razorpayOrder;
+  try {
+    razorpayOrder = await getRazorpay().orders.create({
+      amount: snapshot.priceInPaise,
+      currency: snapshot.currency,
+      receipt,
+      notes: {
+        internalOrderNumber: receipt,
+        userId: user.uid,
+        userEmail: user.email || "",
+        planId: snapshot.planId,
+        variantId: snapshot.variantId
+      }
+    });
+  } catch (cause) {
+    const error = new Error("Could not create Razorpay order.");
+    error.statusCode = 500;
+    error.safeMessage = "Razorpay order creation failed. Check RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and that both keys are from the same Razorpay mode.";
+    error.cause = cause;
+    throw error;
+  }
+
+  let doc;
+  try {
+    doc = await db.collection("orders").add({
       internalOrderNumber: receipt,
       userId: user.uid,
       userEmail: user.email || "",
       planId: snapshot.planId,
-      variantId: snapshot.variantId
-    }
-  });
-
-  const doc = await db.collection("orders").add({
-    internalOrderNumber: receipt,
-    userId: user.uid,
-    userEmail: user.email || "",
-    planId: snapshot.planId,
-    variantId: snapshot.variantId,
-    trustedPlanSnapshot: snapshot,
-    billing: {
-      name: String(billing.name || user.name || user.email || "").slice(0, 120),
-      phone: String(billing.phone || "").slice(0, 30),
-      address: String(billing.address || "").slice(0, 500)
-    },
-    amountInPaise: snapshot.priceInPaise,
-    currency: snapshot.currency,
-    razorpayOrderId: razorpayOrder.id,
-    paymentStatus: "pending",
-    orderStatus: "created",
-    isExtension,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
+      variantId: snapshot.variantId,
+      trustedPlanSnapshot: snapshot,
+      billing: {
+        name: String(billing.name || user.name || user.email || "").slice(0, 120),
+        phone: String(billing.phone || "").slice(0, 30),
+        address: String(billing.address || "").slice(0, 500)
+      },
+      amountInPaise: snapshot.priceInPaise,
+      currency: snapshot.currency,
+      razorpayOrderId: razorpayOrder.id,
+      paymentStatus: "pending",
+      orderStatus: "created",
+      isExtension,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  } catch (cause) {
+    const error = new Error("Could not store pending order.");
+    error.statusCode = 500;
+    error.safeMessage = "Firestore could not store the pending order. Check Firebase Admin service account permissions and Firestore database setup.";
+    error.cause = cause;
+    throw error;
+  }
 
   return {
     orderDocumentId: doc.id,
@@ -241,8 +269,8 @@ export async function getUserPaymentSummary(user) {
   const db = getDb();
   const [subsSnap, paymentsSnap, ordersSnap] = await Promise.all([
     db.collection("subscriptions").where("userId", "==", user.uid).get(),
-    db.collection("payments").where("userId", "==", user.uid).orderBy("createdAt", "desc").limit(50).get(),
-    db.collection("orders").where("userId", "==", user.uid).orderBy("createdAt", "desc").limit(50).get()
+    db.collection("payments").where("userId", "==", user.uid).limit(50).get(),
+    db.collection("orders").where("userId", "==", user.uid).limit(50).get()
   ]);
   const now = new Date();
   return {
@@ -335,6 +363,10 @@ function serializePayment(id, data) {
 function serializeOrder(id, data) {
   return { id, ...data, createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt), paidAt: serializeDate(data.paidAt), failedAt: serializeDate(data.failedAt), accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt) };
 }
+
+
+
+
 
 
 
