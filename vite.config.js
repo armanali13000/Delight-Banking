@@ -1,10 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const isVercel = Boolean(process.env.VERCEL);
+
 export default defineConfig({
-  base: "/Delight-Banking/",
+  base: isVercel ? "/" : "/Delight-Banking/",
   build: {
-    outDir: "docs"
+    outDir: isVercel ? "dist" : "docs"
   },
   plugins: [react()]
 });

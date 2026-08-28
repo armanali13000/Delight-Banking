@@ -9,7 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d docs",
-    "postbuild": "copy docs\\\\index.html docs\\\\404.html"
+    "postbuild": "node scripts/copy-404.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
