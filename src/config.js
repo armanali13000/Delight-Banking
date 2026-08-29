@@ -14,11 +14,6 @@ export const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-SQE0Y2WH6Q"
 };
 
-export const paymentConfig = {
-  key: import.meta.env.VITE_RAZORPAY_KEY_ID || "",
-  businessName: "Delight Banking",
-  description: "Educational mentorship and guidance services"
-};
 
 export const adminEmails = ["darkdevil7325@gmail.com"];
 export const exams = ["SBI PO", "SBI Clerk", "IBPS PO", "IBPS Clerk", "RRB PO", "RRB Clerk"];
@@ -61,3 +56,4 @@ export const seedResources = [
     description: "A free preview explaining score review, error logs, and next-day correction targets."
   }
 ];
+

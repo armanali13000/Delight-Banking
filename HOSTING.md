@@ -1,21 +1,24 @@
-# Delight Banking Hosting Guide
+# Hosting Delight Banking on Vercel
 
-## Local setup
+The GitHub repo is already connected, so use the Vercel dashboard:
 
-```bash
-npm install
-npm run dev
-```
+1. Import or open the `Delight-Banking` project in Vercel.
+2. Framework Preset: `Vite`.
+3. Build Command: `npm run build`.
+4. Output Directory: `docs`.
+5. Install Command: `npm install`.
+6. Node.js Version: `20.x` or newer.
 
-## Vercel
+## Environment Variables
 
-The app uses Vercel serverless functions for secure Razorpay payments. Add these variables in Vercel Project Settings -> Environment Variables:
+The app uses Vercel serverless functions for secure Cashfree payments. Add these variables in Vercel Project Settings -> Environment Variables:
 
 ```text
-VITE_RAZORPAY_KEY_ID
-RAZORPAY_KEY_ID
-RAZORPAY_KEY_SECRET
-RAZORPAY_WEBHOOK_SECRET
+CASHFREE_CLIENT_ID
+CASHFREE_CLIENT_SECRET
+CASHFREE_ENVIRONMENT=sandbox
+CASHFREE_API_VERSION=2025-01-01
+APP_BASE_URL=https://delightbanking.vercel.app
 FIREBASE_PROJECT_ID
 FIREBASE_CLIENT_EMAIL
 FIREBASE_PRIVATE_KEY
@@ -26,37 +29,30 @@ VITE_FIREBASE_STORAGE_BUCKET
 VITE_FIREBASE_MESSAGING_SENDER_ID
 VITE_FIREBASE_APP_ID
 VITE_FIREBASE_MEASUREMENT_ID
-APP_BASE_URL
 ```
 
-Only `VITE_` variables are exposed to the browser. Never commit live Razorpay secrets or Firebase Admin private keys.
+Only `VITE_` variables are exposed to the browser. Never commit live Cashfree secrets or Firebase Admin private keys.
 
-Build settings:
+## Firebase
 
-```text
-Framework Preset: Vite
-Build Command: npm run build
-Output Directory: dist
-```
+In Firebase Console:
 
-## Razorpay Test Mode
+1. Enable Authentication providers you use, including Google.
+2. Add `delightbanking.vercel.app` in Authentication -> Settings -> Authorized domains.
+3. Create Firestore Database.
+4. Publish `firestore.rules` from this repo if you want the same client-side admin/resource rules.
+5. Create a Firebase Admin service account and put its email/private key into Vercel env vars.
 
-Use Razorpay Test Mode first. Configure the webhook URL:
+## Cashfree Sandbox
+
+Use sandbox mode first. Configure webhook URL:
 
 ```text
 https://delightbanking.vercel.app/api/payments/webhook
 ```
 
-Subscribe to `payment.captured`, `payment.failed`, `order.paid`, `refund.created`, and `refund.processed`.
+The server verifies webhook signatures with `CASHFREE_CLIENT_SECRET` and also checks final order status with Cashfree before activating access.
 
-## Firebase
+## Deploy
 
-Deploy `firestore.rules` before enabling production payments. Students can read only their own orders, payments, and subscriptions. Serverless backend code is the only writer for paid access.
-
-## GitHub Pages
-
-GitHub Pages is still supported for the static frontend build, but secure Razorpay server APIs require Vercel.
-
-```bash
-npm run deploy
-```
+Push to `main`. Vercel will rebuild automatically. GitHub Pages is still supported for the static frontend build, but secure payment APIs require Vercel.

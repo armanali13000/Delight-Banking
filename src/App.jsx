@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
-import { adminEmails, appBase, exams, getPlanVariant, mentorPhotoPath, paymentConfig, plans } from "./config.js";
+import { adminEmails, appBase, exams, getPlanVariant, mentorPhotoPath, plans } from "./config.js";
 import {
   addResource,
   createPaymentOrder,
@@ -17,8 +17,7 @@ import {
   listenToAuth,
   saveStudyTracking,
   saveUserProfile,
-  signOutUser,
-  verifyPayment
+  signOutUser
 } from "./services/dataService.js";
 
 const examCards = [
@@ -131,7 +130,7 @@ function HomePage() {
       <main>
         <section className="hero" id="home"><div className="hero-copy"><p className="eyebrow">SBI | IBPS | RRB</p><h1>Delight Banking</h1><p>Premium banking exam guidance with mentor strategy, study targets, current affairs, and plan-based resources unlocked only after verified payment.</p><div className="hero-actions"><a className="primary-button" href="#plans">Choose Mentorship</a><a className="ghost-button" href={`${appBase}student-desk`}>Student Desk</a></div></div><div className="hero-board mentor-board"><img className="mentor-photo" src={mentorPhotoPath} alt="Imran Sir - Delight Banking Mentor" onError={(event) => { event.currentTarget.style.display = "none"; }} /><div className="rank-card main-rank"><span>Mentor</span><strong>Imran Sir</strong><small>Banking exam strategy and personal guidance</small></div></div></section>
         <section className="section" id="programs"><div className="section-heading"><p className="eyebrow">Exam Tracks</p><h2>Guidance built around your target exam</h2><p>Focused preparation for prelims, mains, current affairs, revision, and mock-test analysis.</p></div><div className="program-grid">{examCards.map(([tag, title, text]) => <article className="premium-card" key={title}><span className="chip">{tag}</span><h3>{title}</h3><p>{text}</p></article>)}</div></section>
-        <section className="strategy-band" id="strategy"><div><p className="eyebrow">Mentor Guidance</p><h2>Strategy, study plans, and daily execution with Imran Sir</h2><p>Students receive plan-specific guidance and resources after secure Razorpay verification.</p></div>{["How to clear exams", "Study plans", "Daily current affairs"].map((title, index) => <article className="strategy-item" key={title}><span>{String(index + 1).padStart(2, "0")}</span><h3>{title}</h3><p>{index === 0 ? "Attempt planning, mock analysis, score tracking, and sectional decision rules." : index === 1 ? "Weekly preparation maps for Quant, Reasoning, English, GA, and banking awareness." : "Exam-focused updates with banking, finance, economy, and national revision tags."}</p></article>)}</section>
+        <section className="strategy-band" id="strategy"><div><p className="eyebrow">Mentor Guidance</p><h2>Strategy, study plans, and daily execution with Imran Sir</h2><p>Students receive plan-specific guidance and resources after secure payment verification.</p></div>{["How to clear exams", "Study plans", "Daily current affairs"].map((title, index) => <article className="strategy-item" key={title}><span>{String(index + 1).padStart(2, "0")}</span><h3>{title}</h3><p>{index === 0 ? "Attempt planning, mock analysis, score tracking, and sectional decision rules." : index === 1 ? "Weekly preparation maps for Quant, Reasoning, English, GA, and banking awareness." : "Exam-focused updates with banking, finance, economy, and national revision tags."}</p></article>)}</section>
         <section className="section" id="plans"><div className="section-heading"><p className="eyebrow">Mentorship Plans</p><h2>Choose one-time access</h2><p>Monthly plans are one-time payments, not automatic recurring charges. Access starts after verified payment activation.</p></div><PlanGrid paymentSummary={paymentSummary} /></section>
       </main>
       <Footer />
@@ -156,30 +155,17 @@ function CheckoutPage({ variantId }) {
     if (!user) { setAuthMode("signin"); return; }
     if (!canPay) return;
     setStatus("processing");
-    setMessage("Creating secure Razorpay order...");
+    setMessage("Creating secure payment order...");
     try {
       const order = await createPaymentOrder(variant.variantId, { name: profile.name, phone: profile.phone, address: profile.address });
-      if (!window.Razorpay) throw new Error("Razorpay Checkout could not load. Please refresh and try again.");
-      if (!order.keyId) throw new Error("Razorpay public key is not configured on the server.");
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amountInPaise,
-        currency: order.currency,
-        name: paymentConfig.businessName,
-        description: `${order.plan.name} - ${order.plan.durationLabel}`,
-        order_id: order.razorpayOrderId,
-        prefill: { name: profile.name || user.displayName || "", email: user.email || "", contact: profile.phone || "" },
-        notes: { internalOrderNumber: order.internalOrderNumber },
-        theme: { color: "#d21f32" },
-        handler: async (response) => { setMessage("Verifying payment securely..."); const verified = await verifyPayment(response); routeTo(`${appBase}payment/success?orderId=${verified.orderId}`); },
-        modal: { ondismiss: () => { setStatus("cancelled"); setMessage("Payment cancelled. No access was activated."); } },
-        retry: { enabled: true }
-      });
-      checkout.on("payment.failed", (response) => { setStatus("failed"); setMessage(response.error?.description || "Payment failed. Please try again."); });
-      checkout.open();
+      if (!window.Cashfree) throw new Error("Secure checkout could not load. Please refresh and try again.");
+      if (!order.paymentSessionId) throw new Error("Secure checkout session was not created. Please try again.");
+      const checkout = window.Cashfree({ mode: order.mode === "production" ? "production" : "sandbox" });
+      setMessage("Opening secure checkout...");
+      await checkout.checkout({ paymentSessionId: order.paymentSessionId, redirectTarget: "_self" });
     } catch (error) { setStatus("failed"); setMessage(error.message); }
   }
-  return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="checkout-shell"><article className="checkout-summary premium-card"><span className="chip">Secure Checkout</span><h1>{plan.name}</h1><p className="plan-subtitle">{plan.subtitle}</p><p>{plan.coverage}</p><div className="plan-price-row"><div className="price">{formatPrice(variant.priceInRupees)}</div><span className="status-pill">{variant.durationLabel}</span></div><p>Access duration begins after verified payment activation. No automatic renewal or automatic debit is created.</p><ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul></article><article className="checkout-form premium-card"><h2>Student and billing details</h2>{!user && <p className="form-message">Login is required before payment.</p>}<label>Name<input value={profile.name || user?.displayName || ""} onChange={(event) => setProfile({ ...profile, name: event.target.value })} placeholder="Student name" /></label><label>Email<input value={user?.email || ""} disabled placeholder="Login required" /></label><label>Mobile number<input value={profile.phone || ""} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} placeholder="For receipt and support" /></label><label>Billing address<textarea rows="3" value={profile.address || ""} onChange={(event) => setProfile({ ...profile, address: event.target.value })} placeholder="Address for receipt records" /></label><label className="checkbox-row"><input type="checkbox" checked={accepted.terms} onChange={(event) => setAccepted({ ...accepted, terms: event.target.checked })} /> Payments are for educational mentorship and guidance services; exam selection, results or employment are not guaranteed.</label><label className="checkbox-row"><input type="checkbox" checked={accepted.refund} onChange={(event) => setAccepted({ ...accepted, refund: event.target.checked })} /> I understand the refund policy must be reviewed before production payments are enabled.</label><label className="checkbox-row"><input type="checkbox" checked={accepted.privacy} onChange={(event) => setAccepted({ ...accepted, privacy: event.target.checked })} /> Card, UPI and banking credentials are handled by Razorpay and are not stored by Delight Banking.</label><button className="primary-button full" type="button" disabled={!canPay} onClick={pay}>Pay Securely</button><p className="setup-note">You will enter card, UPI or banking details only inside Razorpay Checkout.</p>{message && <p className={`form-message ${status}`}>{message}</p>}</article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={(nextUser) => { setUser(nextUser); setProfile(getUserProfile(nextUser.email)); }} />}</Shell>;
+  return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="checkout-shell"><article className="checkout-summary premium-card"><span className="chip">Secure Checkout</span><h1>{plan.name}</h1><p className="plan-subtitle">{plan.subtitle}</p><p>{plan.coverage}</p><div className="plan-price-row"><div className="price">{formatPrice(variant.priceInRupees)}</div><span className="status-pill">{variant.durationLabel}</span></div><p>Access duration begins after verified payment activation. No automatic renewal or automatic debit is created.</p><ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul></article><article className="checkout-form premium-card"><h2>Student and billing details</h2>{!user && <p className="form-message">Login is required before payment.</p>}<label>Name<input value={profile.name || user?.displayName || ""} onChange={(event) => setProfile({ ...profile, name: event.target.value })} placeholder="Student name" /></label><label>Email<input value={user?.email || ""} disabled placeholder="Login required" /></label><label>Mobile number<input value={profile.phone || ""} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} placeholder="For receipt and support" /></label><label>Billing address<textarea rows="3" value={profile.address || ""} onChange={(event) => setProfile({ ...profile, address: event.target.value })} placeholder="Address for receipt records" /></label><label className="checkbox-row"><input type="checkbox" checked={accepted.terms} onChange={(event) => setAccepted({ ...accepted, terms: event.target.checked })} /> Payments are for educational mentorship and guidance services; exam selection, results or employment are not guaranteed.</label><label className="checkbox-row"><input type="checkbox" checked={accepted.refund} onChange={(event) => setAccepted({ ...accepted, refund: event.target.checked })} /> I understand the refund policy must be reviewed before production payments are enabled.</label><label className="checkbox-row"><input type="checkbox" checked={accepted.privacy} onChange={(event) => setAccepted({ ...accepted, privacy: event.target.checked })} /> Card, UPI and banking credentials are handled inside the secure checkout and are not stored by Delight Banking.</label><button className="primary-button full" type="button" disabled={!canPay} onClick={pay}>Pay Securely</button><p className="setup-note">You will enter card, UPI or banking details only inside the secure checkout.</p>{message && <p className={`form-message ${status}`}>{message}</p>}</article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={(nextUser) => { setUser(nextUser); setProfile(getUserProfile(nextUser.email)); }} />}</Shell>;
 }
 
 function PaymentStatusPage({ statusType, orderId }) {
@@ -189,7 +175,7 @@ function PaymentStatusPage({ statusType, orderId }) {
   const [message, setMessage] = useState("Loading verified payment status...");
   useEffect(() => { listenToAuth(setUser); }, []);
   useEffect(() => { if (!user || !orderId) return; getOrderStatus(orderId).then((data) => { setOrder(data); setMessage(""); }).catch((error) => setMessage(error.message)); }, [user, orderId]);
-  return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="payment-status-card premium-card"><span className="chip">Payment {statusType}</span><h1>{statusType === "success" ? "Payment confirmed" : statusType === "processing" ? "Payment processing" : "Payment not completed"}</h1>{message && <p className="form-message">{message}</p>}{order && <div className="receipt-card" id="receipt"><h2>Payment Receipt</h2><dl className="student-details"><div><dt>Receipt number</dt><dd>{order.internalOrderNumber}</dd></div><div><dt>Student email</dt><dd>{order.userEmail}</dd></div><div><dt>Plan</dt><dd>{order.trustedPlanSnapshot.name}</dd></div><div><dt>Duration</dt><dd>{order.trustedPlanSnapshot.durationLabel}</dd></div><div><dt>Amount</dt><dd>{formatPrice(order.amountInPaise / 100)}</dd></div><div><dt>Payment ID</dt><dd>{order.paymentId || "Pending"}</dd></div><div><dt>Activation</dt><dd>{formatDate(order.accessStartAt)}</dd></div><div><dt>Expiry</dt><dd>{formatDate(order.accessEndAt)}</dd></div><div><dt>Status</dt><dd>{order.paymentStatus}</dd></div></dl><p>Delight Banking. Business/contact details placeholder. This is a payment receipt, not a GST tax invoice.</p></div>}<div className="form-actions"><a className="primary-button" href={`${appBase}student-desk`}>Open Student Dashboard</a><button className="ghost-button" type="button" onClick={() => window.print()}>Download Receipt</button></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+  return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="payment-status-card premium-card"><span className="chip">Payment {statusType}</span><h1>{statusType === "success" ? "Payment confirmed" : statusType === "processing" ? "Payment processing" : "Payment not completed"}</h1>{message && <p className="form-message">{message}</p>}{order && <div className="receipt-card" id="receipt"><h2>Payment Receipt</h2><dl className="student-details"><div><dt>Receipt number</dt><dd>{order.internalOrderNumber}</dd></div><div><dt>Student email</dt><dd>{order.userEmail}</dd></div><div><dt>Plan</dt><dd>{order.trustedPlanSnapshot.name}</dd></div><div><dt>Duration</dt><dd>{order.trustedPlanSnapshot.durationLabel}</dd></div><div><dt>Amount</dt><dd>{formatPrice(order.amount || (order.amountInPaise / 100))}</dd></div><div><dt>Payment ID</dt><dd>{order.paymentId || "Pending"}</dd></div><div><dt>Activation</dt><dd>{formatDate(order.accessStartAt)}</dd></div><div><dt>Expiry</dt><dd>{formatDate(order.accessEndAt)}</dd></div><div><dt>Status</dt><dd>{order.paymentStatus}</dd></div></dl><p>Delight Banking. Business/contact details placeholder. This is a payment receipt, not a GST tax invoice.</p></div>}<div className="form-actions"><a className="primary-button" href={`${appBase}student-desk`}>Open Student Dashboard</a><button className="ghost-button" type="button" onClick={() => window.print()}>Download Receipt</button></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 
 function StudentDeskPage() {
@@ -221,7 +207,7 @@ function StudentDeskPage() {
 }
 
 function AccessPlansPanel({ paymentSummary }) {
-  return <section className="desk-access-panel"><div className="toolbar"><div><p className="eyebrow">Mentorship Access</p><h2>Choose your plan</h2><p>Access unlocks only after verified Razorpay payment.</p></div></div><PlanGrid paymentSummary={paymentSummary} /></section>;
+  return <section className="desk-access-panel"><div className="toolbar"><div><p className="eyebrow">Mentorship Access</p><h2>Choose your plan</h2><p>Access unlocks only after verified payment.</p></div></div><PlanGrid paymentSummary={paymentSummary} /></section>;
 }
 
 function NoPlan() {
@@ -235,7 +221,7 @@ function SubscriptionList({ title, subscriptions, empty = "No active mentorship 
 }
 
 function PaymentHistory({ payments, orders }) {
-  return <section className="resource-panel"><div className="toolbar"><div><p className="eyebrow">Payment History</p><h2>Transactions</h2></div></div><div className="resource-list">{payments.length ? payments.map((payment) => <article className="resource-item" key={payment.id}><header><div><h3>{payment.razorpayPaymentId}</h3><p>{formatPrice(payment.amountInPaise / 100)} paid on {formatDate(payment.capturedAt || payment.createdAt)}</p></div><span className="status-pill">{payment.status}</span></header><div className="meta-row"><span>{payment.currency}</span><span>{payment.paymentMethod || "Razorpay"}</span><span>{payment.verified ? "Verified" : "Pending"}</span></div><button className="text-button" type="button" onClick={() => window.print()}>Receipt/invoice action</button></article>) : orders.length ? orders.map((order) => <article className="resource-item" key={order.id}><h3>{order.internalOrderNumber}</h3><p>{order.paymentStatus}</p></article>) : <NoPlanText text="No payment history yet." />}</div></section>;
+  return <section className="resource-panel"><div className="toolbar"><div><p className="eyebrow">Payment History</p><h2>Transactions</h2></div></div><div className="resource-list">{payments.length ? payments.map((payment) => <article className="resource-item" key={payment.id}><header><div><h3>{payment.cashfreePaymentId || payment.providerPaymentId || payment.id}</h3><p>{formatPrice(payment.amount || (payment.amountInPaise / 100))} paid on {formatDate(payment.capturedAt || payment.createdAt)}</p></div><span className="status-pill">{payment.status}</span></header><div className="meta-row"><span>{payment.currency}</span><span>{payment.paymentMethod || "Secure Payment"}</span><span>{payment.verified ? "Verified" : "Pending"}</span></div><button className="text-button" type="button" onClick={() => window.print()}>Receipt/invoice action</button></article>) : orders.length ? orders.map((order) => <article className="resource-item" key={order.id}><h3>{order.internalOrderNumber}</h3><p>{order.paymentStatus}</p></article>) : <NoPlanText text="No payment history yet." />}</div></section>;
 }
 
 function ResourceList({ resources, paymentSummary }) {
@@ -260,7 +246,7 @@ function PrivacyPolicyPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
   useEffect(() => { listenToAuth(setUser); }, []);
-  return <Shell user={user} onAuth={setAuthMode}><main className="policy-page"><section className="section"><div className="section-heading"><p className="eyebrow">Privacy Policy</p><h1 className="page-title">Your data and access</h1><p>Delight Banking uses login information to manage student access, resources, and one-time mentorship subscriptions.</p></div><div className="policy-content"><article className="premium-card"><h3>Payments</h3><p>Payments are for educational mentorship and guidance services. Card, UPI and banking credentials are handled by Razorpay and are not stored by Delight Banking.</p></article><article className="premium-card"><h3>Access</h3><p>Access duration begins after verified payment activation. Monthly plans are one-time payments and do not renew automatically.</p></article><article className="premium-card"><h3>Results</h3><p>Examination selection, results or employment are not guaranteed.</p></article><article className="premium-card"><h3>Refund Policy</h3><p>Refund policy details must be completed and reviewed before production payments are enabled.</p></article></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+  return <Shell user={user} onAuth={setAuthMode}><main className="policy-page"><section className="section"><div className="section-heading"><p className="eyebrow">Privacy Policy</p><h1 className="page-title">Your data and access</h1><p>Delight Banking uses login information to manage student access, resources, and one-time mentorship subscriptions.</p></div><div className="policy-content"><article className="premium-card"><h3>Payments</h3><p>Payments are for educational mentorship and guidance services. Card, UPI and banking credentials are handled inside the secure checkout and are not stored by Delight Banking.</p></article><article className="premium-card"><h3>Access</h3><p>Access duration begins after verified payment activation. Monthly plans are one-time payments and do not renew automatically.</p></article><article className="premium-card"><h3>Results</h3><p>Examination selection, results or employment are not guaranteed.</p></article><article className="premium-card"><h3>Refund Policy</h3><p>Refund policy details must be completed and reviewed before production payments are enabled.</p></article></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 
 function AdminPage() {
@@ -294,13 +280,17 @@ export default function App() {
   const url = new URL(window.location.href);
   const path = url.pathname.replace(appBase, "/");
   const checkoutMatch = path.match(/^\/checkout\/([^/]+)\/?$/);
-  const paymentMatch = path.match(/^\/payment\/(success|failed|cancelled|processing|verification-failed|pending)\/?$/);
+  const paymentMatch = path.match(/^\/payment\/(success|failed|cancelled|processing|verification-failed|pending|status)\/?$/);
   void route;
   if (checkoutMatch) return <CheckoutPage variantId={decodeURIComponent(checkoutMatch[1])} />;
-  if (paymentMatch) return <PaymentStatusPage statusType={paymentMatch[1]} orderId={url.searchParams.get("orderId")} />;
+  if (paymentMatch) return <PaymentStatusPage statusType={paymentMatch[1]} orderId={url.searchParams.get("order_id") || url.searchParams.get("orderId")} />;
   if (path.endsWith("/admin") || url.hash === "#admin") return <AdminPage />;
   if (path.endsWith("/student-desk") || url.hash.includes("student-desk")) return <StudentDeskPage />;
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;
 }
+
+
+
+
 

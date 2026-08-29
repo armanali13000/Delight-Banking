@@ -1,17 +1,15 @@
 import crypto from "node:crypto";
-import Razorpay from "razorpay";
 import { fieldValue, getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { getVariant, planSnapshot } from "./plans.js";
+import {
+  createCashfreeOrder,
+  fetchCashfreeOrder,
+  fetchCashfreePayments,
+  getCashfreeMode,
+  verifyCashfreeWebhookSignature
+} from "./cashfree.js";
 
-function getRazorpay() {
-  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-    const error = new Error("Razorpay server keys are not configured.");
-    error.statusCode = 500;
-    error.safeMessage = "Razorpay server keys are not configured. Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Vercel.";
-    throw error;
-  }
-  return new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
-}
+export { verifyCashfreeWebhookSignature as verifyWebhookSignature };
 
 export function addCalendarMonths(date, months) {
   const next = new Date(date.getTime());
@@ -23,118 +21,80 @@ export function addCalendarMonths(date, months) {
   return next;
 }
 
-export function verifyPaymentSignature(orderId, paymentId, signature) {
-  const body = `${orderId}|${paymentId}`;
-  const expected = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "").update(body).digest("hex");
-  const actual = Buffer.from(signature || "");
-  const expectedBuffer = Buffer.from(expected);
-  return actual.length === expectedBuffer.length && crypto.timingSafeEqual(expectedBuffer, actual);
-}
-
-export function verifyWebhookSignature(rawBody, signature) {
-  const expected = crypto.createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET || "").update(rawBody).digest("hex");
-  const actual = Buffer.from(signature || "");
-  const expectedBuffer = Buffer.from(expected);
-  return actual.length === expectedBuffer.length && crypto.timingSafeEqual(expectedBuffer, actual);
-}
-
 export function makeInternalOrderNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  return `DB-${stamp}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  return `DB_${stamp}_${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
 }
 
-export async function createOrderForVariant(user, variantId, billing = {}) {
-  const selected = getVariant(variantId);
-  if (!selected) {
-    const error = new Error("Invalid or inactive plan variant.");
-    error.statusCode = 400;
-    throw error;
-  }
+function getAppBaseUrl() {
+  const configured = process.env.APP_BASE_URL || process.env.PUBLIC_APP_BASE_URL;
+  if (configured) return configured.replace(/\/$/, "");
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:5173";
+}
 
-  const { plan, variant } = selected;
-  const snapshot = planSnapshot(plan, variant);
-  const db = getDb();
-  const now = new Date();
+function normalizePhone(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 10) return digits;
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  return "";
+}
 
-  let isExtension = false;
-  try {
-    const subscriptionId = `${user.uid}_${variant.variantId}`;
-    const subscriptionSnap = await db.collection("subscriptions").doc(subscriptionId).get();
-    const existingSubscription = subscriptionSnap.exists ? subscriptionSnap.data() : null;
-    const existingEnd = existingSubscription?.accessEndAt?.toDate ? existingSubscription.accessEndAt.toDate() : null;
-    isExtension = existingSubscription?.status === "active" && existingEnd && existingEnd > now;
-  } catch (cause) {
-    const error = new Error("Could not read subscription state.");
-    error.statusCode = 500;
-    error.safeMessage = `Firestore could not read subscriptions (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
-    error.cause = cause;
-    throw error;
-  }
+function cleanCustomerId(value) {
+  return String(value || "student").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50) || "student";
+}
 
-  const receipt = makeInternalOrderNumber();
-  let razorpayOrder;
-  try {
-    razorpayOrder = await getRazorpay().orders.create({
-      amount: snapshot.priceInPaise,
-      currency: snapshot.currency,
-      receipt,
-      notes: {
-        internalOrderNumber: receipt,
-        userId: user.uid,
-        userEmail: user.email || "",
-        planId: snapshot.planId,
-        variantId: snapshot.variantId
-      }
-    });
-  } catch (cause) {
-    const error = new Error("Could not create Razorpay order.");
-    error.statusCode = 500;
-    error.safeMessage = "Razorpay order creation failed. Check RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and that both keys are from the same Razorpay mode.";
-    error.cause = cause;
-    throw error;
-  }
+function cleanDocId(value) {
+  return String(value || crypto.randomUUID()).replace(/[\/#?\[\]]/g, "_");
+}
 
-  let doc;
-  try {
-    doc = await db.collection("orders").add({
-      internalOrderNumber: receipt,
-      userId: user.uid,
-      userEmail: user.email || "",
-      planId: snapshot.planId,
-      variantId: snapshot.variantId,
-      trustedPlanSnapshot: snapshot,
-      billing: {
-        name: String(billing.name || user.name || user.email || "").slice(0, 120),
-        phone: String(billing.phone || "").slice(0, 30),
-        address: String(billing.address || "").slice(0, 500)
-      },
-      amountInPaise: snapshot.priceInPaise,
-      currency: snapshot.currency,
-      razorpayOrderId: razorpayOrder.id,
-      paymentStatus: "pending",
-      orderStatus: "created",
-      isExtension,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-  } catch (cause) {
-    const error = new Error("Could not store pending order.");
-    error.statusCode = 500;
-    error.safeMessage = `Firestore could not store the pending order (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
-    error.cause = cause;
-    throw error;
-  }
+function normalizeOrderStatus(status) {
+  const value = String(status || "").toUpperCase();
+  if (["PAID", "SUCCESS"].includes(value)) return "paid";
+  if (["FAILED", "CANCELLED", "TERMINATED"].includes(value)) return "failed";
+  if (value === "EXPIRED") return "expired";
+  if (value === "USER_DROPPED") return "cancelled";
+  return "pending";
+}
 
-  return {
-    orderDocumentId: doc.id,
-    internalOrderNumber: receipt,
-    razorpayOrderId: razorpayOrder.id,
-    amountInPaise: snapshot.priceInPaise,
-    currency: snapshot.currency,
-    plan: snapshot,
-    keyId: process.env.VITE_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID,
-    isExtension
-  };
+function getPaidPayment(payments) {
+  if (!Array.isArray(payments)) return null;
+  return payments.find((payment) => String(payment.payment_status || payment.status || "").toUpperCase() === "SUCCESS") || null;
+}
+
+function stringifyPaymentMethod(payment) {
+  const group = payment?.payment_group;
+  if (group) return String(group);
+  const method = payment?.payment_method;
+  if (!method) return "Secure Payment";
+  if (typeof method === "string") return method;
+  const keys = Object.keys(method).filter((key) => method[key]);
+  return keys[0] || "Secure Payment";
+}
+function getGatewayOrderId(order) {
+  return order.cashfreeOrderId || order.providerOrderId || order.internalOrderNumber;
+}
+
+function amountMatches(expected, actual) {
+  return Math.abs(Number(expected) - Number(actual)) < 0.01;
+}
+
+function serializeDate(value) {
+  return value?.toDate ? value.toDate().toISOString() : value instanceof Date ? value.toISOString() : value || null;
+}
+
+function serializeSubscription(id, data, now = new Date()) {
+  const accessEnd = data.accessEndAt?.toDate?.();
+  const computedStatus = data.status === "active" && accessEnd && accessEnd <= now ? "expired" : data.status;
+  return { id, ...data, status: computedStatus, accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt), createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt) };
+}
+
+function serializePayment(id, data) {
+  return { id, ...data, createdAt: serializeDate(data.createdAt), capturedAt: serializeDate(data.capturedAt), updatedAt: serializeDate(data.updatedAt) };
+}
+
+function serializeOrder(id, data) {
+  return { id, ...data, createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt), paidAt: serializeDate(data.paidAt), failedAt: serializeDate(data.failedAt), accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt) };
 }
 
 async function activateEntitlement(tx, db, orderRef, order, paymentId, source, paidAtDate) {
@@ -176,93 +136,257 @@ async function activateEntitlement(tx, db, orderRef, order, paymentId, source, p
   return { subscriptionId, accessStartAt: start.toISOString(), accessEndAt: end.toISOString() };
 }
 
-export async function verifyAndRecordPayment(user, payload) {
-  const { razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: signature } = payload;
-  if (!orderId || !paymentId || !signature) {
-    const error = new Error("Payment verification details are incomplete.");
-    error.statusCode = 400;
-    throw error;
-  }
-  if (!verifyPaymentSignature(orderId, paymentId, signature)) {
-    const error = new Error("Payment signature verification failed.");
+export async function createOrderForVariant(user, variantId, billing = {}) {
+  const selected = getVariant(variantId);
+  if (!selected) {
+    const error = new Error("Invalid or inactive plan variant.");
     error.statusCode = 400;
     throw error;
   }
 
+  const phone = normalizePhone(billing.phone);
+  if (!phone) {
+    const error = new Error("Enter a valid 10-digit mobile number before payment.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const { plan, variant } = selected;
+  const snapshot = planSnapshot(plan, variant);
   const db = getDb();
-  const orders = await db.collection("orders").where("razorpayOrderId", "==", orderId).limit(1).get();
-  if (orders.empty) {
+  const now = new Date();
+  const internalOrderNumber = makeInternalOrderNumber();
+  const orderRef = db.collection("orders").doc(internalOrderNumber);
+
+  let isExtension = false;
+  try {
+    const subscriptionId = `${user.uid}_${variant.variantId}`;
+    const subscriptionSnap = await db.collection("subscriptions").doc(subscriptionId).get();
+    const existingSubscription = subscriptionSnap.exists ? subscriptionSnap.data() : null;
+    const existingEnd = existingSubscription?.accessEndAt?.toDate ? existingSubscription.accessEndAt.toDate() : null;
+    isExtension = existingSubscription?.status === "active" && existingEnd && existingEnd > now;
+  } catch (cause) {
+    const error = new Error("Could not read subscription state.");
+    error.statusCode = 500;
+    error.safeMessage = `Firestore could not read subscriptions (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
+    error.cause = cause;
+    throw error;
+  }
+
+  const billingRecord = {
+    name: String(billing.name || user.name || user.displayName || user.email || "Student").slice(0, 120),
+    phone,
+    address: String(billing.address || "").slice(0, 500)
+  };
+
+  try {
+    await orderRef.set({
+      internalOrderNumber,
+      provider: "cashfree",
+      userId: user.uid,
+      userEmail: user.email || "",
+      planId: snapshot.planId,
+      variantId: snapshot.variantId,
+      trustedPlanSnapshot: snapshot,
+      billing: billingRecord,
+      amount: snapshot.priceInRupees,
+      amountInPaise: snapshot.priceInPaise,
+      currency: snapshot.currency,
+      paymentStatus: "pending",
+      orderStatus: "created",
+      isExtension,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  } catch (cause) {
+    const error = new Error("Could not store pending order.");
+    error.statusCode = 500;
+    error.safeMessage = `Firestore could not store the pending order (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
+    error.cause = cause;
+    throw error;
+  }
+
+  const appBaseUrl = getAppBaseUrl();
+  let gatewayOrder;
+  try {
+    gatewayOrder = await createCashfreeOrder({
+      order_id: internalOrderNumber,
+      order_amount: snapshot.priceInRupees,
+      order_currency: snapshot.currency,
+      customer_details: {
+        customer_id: cleanCustomerId(user.uid),
+        customer_name: billingRecord.name,
+        customer_email: user.email || "student@delightbanking.com",
+        customer_phone: phone
+      },
+      order_meta: {
+        return_url: `${appBaseUrl}/payment/status?order_id=${internalOrderNumber}`,
+        notify_url: `${appBaseUrl}/api/payments/webhook`
+      },
+      order_note: `${snapshot.name} ${snapshot.durationLabel}`
+    });
+  } catch (cause) {
+    await orderRef.set({ orderStatus: "gateway_create_failed", paymentStatus: "failed", gatewayError: cause.message, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+    const error = new Error("Could not create payment order.");
+    error.statusCode = cause.statusCode || 502;
+    error.safeMessage = cause.safeMessage || "Payment order creation failed. Check payment gateway credentials and mode in Vercel.";
+    error.cause = cause;
+    throw error;
+  }
+
+  await orderRef.set({
+    providerOrderId: gatewayOrder.order_id || internalOrderNumber,
+    cashfreeOrderId: gatewayOrder.order_id || internalOrderNumber,
+    cashfreeOrderStatus: gatewayOrder.order_status || "ACTIVE",
+    paymentSessionCreated: Boolean(gatewayOrder.payment_session_id),
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  if (!gatewayOrder.payment_session_id) {
+    const error = new Error("Payment gateway did not return a checkout session.");
+    error.statusCode = 502;
+    error.safeMessage = "Payment gateway did not return a checkout session. Check payment gateway credentials and mode.";
+    throw error;
+  }
+
+  return {
+    orderDocumentId: orderRef.id,
+    orderId: orderRef.id,
+    internalOrderNumber,
+    providerOrderId: gatewayOrder.order_id || internalOrderNumber,
+    cashfreeOrderId: gatewayOrder.order_id || internalOrderNumber,
+    paymentSessionId: gatewayOrder.payment_session_id,
+    mode: getCashfreeMode(),
+    amount: snapshot.priceInRupees,
+    currency: snapshot.currency,
+    plan: snapshot,
+    isExtension
+  };
+}
+
+async function syncOrderWithCashfree(orderRef, source = "status_check") {
+  const db = getDb();
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
     const error = new Error("Order was not found.");
     error.statusCode = 404;
     throw error;
   }
-  const orderRef = orders.docs[0].ref;
-  const order = orders.docs[0].data();
-  if (order.userId !== user.uid) {
-    const error = new Error("This order belongs to another user.");
-    error.statusCode = 403;
-    throw error;
-  }
 
-  const rzPayment = await getRazorpay().payments.fetch(paymentId);
-  if (rzPayment.order_id !== orderId || rzPayment.amount !== order.amountInPaise || rzPayment.currency !== order.currency) {
+  const order = orderSnap.data();
+  const gatewayOrderId = getGatewayOrderId(order);
+  const [gatewayOrder, gatewayPayments] = await Promise.all([
+    fetchCashfreeOrder(gatewayOrderId),
+    fetchCashfreePayments(gatewayOrderId)
+  ]);
+
+  const normalizedStatus = normalizeOrderStatus(gatewayOrder.order_status || gatewayOrder.payment_status);
+  const gatewayAmount = gatewayOrder.order_amount ?? gatewayOrder.payment_amount;
+  const gatewayCurrency = gatewayOrder.order_currency || order.currency;
+  if (!amountMatches(order.amount || order.trustedPlanSnapshot.priceInRupees, gatewayAmount) || gatewayCurrency !== order.currency) {
     const error = new Error("Payment details do not match the trusted order.");
     error.statusCode = 400;
     throw error;
   }
 
-  const paidAt = rzPayment.created_at ? new Date(rzPayment.created_at * 1000) : new Date();
+  const paidPayment = getPaidPayment(gatewayPayments);
+  const paymentId = cleanDocId(paidPayment?.cf_payment_id || paidPayment?.payment_id || gatewayOrder.cf_payment_id || gatewayOrderId);
+  const paidAt = paidPayment?.payment_completion_time ? new Date(paidPayment.payment_completion_time) : new Date();
   let activation = null;
-  await db.runTransaction(async (tx) => {
-    const fresh = await tx.get(orderRef);
-    const freshOrder = fresh.data();
-    const paymentRef = db.collection("payments").doc(paymentId);
-    const existingPayment = await tx.get(paymentRef);
-    if (freshOrder.paymentStatus === "paid" && existingPayment.exists) {
-      activation = {
-        accessStartAt: freshOrder.accessStartAt?.toDate?.().toISOString?.() || null,
-        accessEndAt: freshOrder.accessEndAt?.toDate?.().toISOString?.() || null
-      };
-      return;
-    }
-    activation = await activateEntitlement(tx, db, orderRef, freshOrder, paymentId, "checkout_verification", paidAt);
-    tx.set(paymentRef, {
-      userId: user.uid,
-      userEmail: user.email || order.userEmail || "",
-      orderDocumentId: orderRef.id,
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      amountInPaise: rzPayment.amount,
-      currency: rzPayment.currency,
-      status: rzPayment.status,
-      paymentMethod: rzPayment.method || "",
-      verified: true,
-      signatureVerified: true,
-      createdAt: serverTimestamp(),
-      capturedAt: paidAt,
-      refundedAmount: rzPayment.amount_refunded || 0,
-      refundStatus: rzPayment.refund_status || "none"
-    }, { merge: true });
-  });
 
-  return { orderId: orderRef.id, internalOrderNumber: order.internalOrderNumber, paymentId, plan: order.trustedPlanSnapshot, ...activation };
+  if (normalizedStatus === "paid") {
+    await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(orderRef);
+      const freshOrder = fresh.data();
+      const paymentRef = db.collection("payments").doc(paymentId);
+      const existingPayment = await tx.get(paymentRef);
+      if (freshOrder.paymentStatus === "paid" && existingPayment.exists) {
+        activation = {
+          accessStartAt: serializeDate(freshOrder.accessStartAt),
+          accessEndAt: serializeDate(freshOrder.accessEndAt)
+        };
+        return;
+      }
+      activation = await activateEntitlement(tx, db, orderRef, freshOrder, paymentId, source, paidAt);
+      tx.set(paymentRef, {
+        provider: "cashfree",
+        userId: freshOrder.userId,
+        userEmail: freshOrder.userEmail || "",
+        orderDocumentId: orderRef.id,
+        providerOrderId: gatewayOrderId,
+        cashfreeOrderId: gatewayOrderId,
+        cashfreePaymentId: paymentId,
+        amount: Number(paidPayment?.payment_amount || gatewayAmount || freshOrder.amount || 0),
+        amountInPaise: Math.round(Number(paidPayment?.payment_amount || gatewayAmount || freshOrder.amount || 0) * 100),
+        currency: paidPayment?.payment_currency || gatewayCurrency,
+        status: paidPayment?.payment_status || gatewayOrder.order_status || "SUCCESS",
+        paymentMethod: stringifyPaymentMethod(paidPayment),
+        verified: true,
+        signatureVerified: source === "cashfree_webhook",
+        gatewayPayload: paidPayment || null,
+        createdAt: existingPayment.exists ? existingPayment.data().createdAt : serverTimestamp(),
+        capturedAt: paidAt,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    });
+  } else {
+    await orderRef.set({
+      paymentStatus: normalizedStatus,
+      orderStatus: normalizedStatus,
+      cashfreeOrderStatus: gatewayOrder.order_status || null,
+      gatewayPayload: gatewayOrder,
+      failedAt: ["failed", "expired", "cancelled"].includes(normalizedStatus) ? serverTimestamp() : fieldValue.delete(),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+
+  const fresh = await orderRef.get();
+  return { ...serializeOrder(fresh.id, fresh.data()), gatewayStatus: gatewayOrder.order_status || null, payments: Array.isArray(gatewayPayments) ? gatewayPayments.length : 0, ...activation };
 }
 
-export async function getOrderStatusForUser(user, orderId) {
+export async function verifyAndRecordPayment(user, payload) {
+  const orderId = payload.orderId || payload.order_id || payload.internalOrderNumber;
+  if (!orderId) {
+    const error = new Error("Order id is required for payment verification.");
+    error.statusCode = 400;
+    throw error;
+  }
   const db = getDb();
-  const snap = await db.collection("orders").doc(orderId).get();
+  const orderRef = db.collection("orders").doc(orderId);
+  const snap = await orderRef.get();
   if (!snap.exists) {
     const error = new Error("Order was not found.");
     error.statusCode = 404;
     throw error;
   }
-  const order = snap.data();
-  if (order.userId !== user.uid) {
+  if (snap.data().userId !== user.uid) {
+    const error = new Error("This order belongs to another user.");
+    error.statusCode = 403;
+    throw error;
+  }
+  return syncOrderWithCashfree(orderRef, "checkout_status_check");
+}
+
+export async function getOrderStatusForUser(user, orderId) {
+  if (!orderId) {
+    const error = new Error("Order id is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const db = getDb();
+  const orderRef = db.collection("orders").doc(orderId);
+  const snap = await orderRef.get();
+  if (!snap.exists) {
+    const error = new Error("Order was not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (snap.data().userId !== user.uid) {
     const error = new Error("Not allowed to view this order.");
     error.statusCode = 403;
     throw error;
   }
-  return serializeOrder(snap.id, order);
+  return syncOrderWithCashfree(orderRef, "status_check");
 }
 
 export async function getUserPaymentSummary(user) {
@@ -280,94 +404,42 @@ export async function getUserPaymentSummary(user) {
   };
 }
 
-export async function processWebhookEvent(event) {
+function getWebhookOrderId(event) {
+  return event?.data?.order?.order_id || event?.data?.payment?.order_id || event?.data?.order_id || event?.order_id || null;
+}
+
+function getWebhookEventId(event, rawFallback = "") {
+  return event?.event_id || event?.id || event?.data?.payment?.cf_payment_id || event?.data?.payment?.payment_id || crypto.createHash("sha256").update(`${event?.type || event?.event || "event"}:${getWebhookOrderId(event) || "none"}:${rawFallback}`).digest("hex");
+}
+
+export async function processWebhookEvent(event, rawFallback = "") {
   const db = getDb();
-  const eventId = event.id;
-  if (!eventId) return { processed: false };
-  const eventRef = db.collection("razorpayWebhookEvents").doc(eventId);
+  const eventId = cleanDocId(getWebhookEventId(event, rawFallback));
+  const eventRef = db.collection("cashfreeWebhookEvents").doc(eventId);
   const existing = await eventRef.get();
   if (existing.exists) return { processed: false, duplicate: true };
 
-  await eventRef.set({ type: event.event, receivedAt: serverTimestamp(), processed: false });
-  const payment = event.payload?.payment?.entity;
-  const orderEntity = event.payload?.order?.entity;
-  const razorpayOrderId = payment?.order_id || orderEntity?.id;
-  if (!razorpayOrderId) {
+  await eventRef.set({ type: event.type || event.event || "cashfree_event", receivedAt: serverTimestamp(), processed: false });
+  const orderId = getWebhookOrderId(event);
+  if (!orderId) {
     await eventRef.update({ processed: true, ignored: true, updatedAt: serverTimestamp() });
     return { processed: true, ignored: true };
   }
 
-  const orders = await db.collection("orders").where("razorpayOrderId", "==", razorpayOrderId).limit(1).get();
-  if (orders.empty) {
-    await eventRef.update({ processed: true, unmatched: true, updatedAt: serverTimestamp() });
+  const orderRef = db.collection("orders").doc(orderId);
+  const snap = await orderRef.get();
+  if (!snap.exists) {
+    await eventRef.update({ processed: true, unmatched: true, orderId, updatedAt: serverTimestamp() });
     return { processed: true, unmatched: true };
   }
-  const orderRef = orders.docs[0].ref;
-  const order = orders.docs[0].data();
 
-  if (["payment.captured", "order.paid"].includes(event.event) && payment?.id) {
-    const paidAt = payment.created_at ? new Date(payment.created_at * 1000) : new Date();
-    await db.runTransaction(async (tx) => {
-      const fresh = await tx.get(orderRef);
-      const freshOrder = fresh.data();
-      const paymentRef = db.collection("payments").doc(payment.id);
-      if (freshOrder.paymentStatus !== "paid" && payment.amount === order.amountInPaise && payment.currency === order.currency) {
-        await activateEntitlement(tx, db, orderRef, freshOrder, payment.id, "razorpay_webhook", paidAt);
-      }
-      tx.set(paymentRef, {
-        userId: order.userId,
-        userEmail: order.userEmail || "",
-        orderDocumentId: orderRef.id,
-        razorpayOrderId,
-        razorpayPaymentId: payment.id,
-        amountInPaise: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        paymentMethod: payment.method || "",
-        verified: true,
-        signatureVerified: false,
-        createdAt: serverTimestamp(),
-        capturedAt: paidAt,
-        refundedAmount: payment.amount_refunded || 0,
-        refundStatus: payment.refund_status || "none"
-      }, { merge: true });
-    });
+  try {
+    const result = await syncOrderWithCashfree(orderRef, "cashfree_webhook");
+    await eventRef.update({ processed: true, orderId, paymentStatus: result.paymentStatus, updatedAt: serverTimestamp() });
+    return { processed: true, paymentStatus: result.paymentStatus };
+  } catch (cause) {
+    await eventRef.update({ processed: false, orderId, error: cause.message, updatedAt: serverTimestamp() });
+    throw cause;
   }
-
-  if (event.event === "payment.failed") {
-    await orderRef.update({ paymentStatus: "failed", orderStatus: "failed", failedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-  }
-
-  if (["refund.created", "refund.processed"].includes(event.event) && payment?.id) {
-    await db.collection("payments").doc(payment.id).set({ refundStatus: event.event, updatedAt: serverTimestamp() }, { merge: true });
-  }
-
-  await eventRef.update({ processed: true, updatedAt: serverTimestamp() });
-  return { processed: true };
 }
-
-function serializeDate(value) {
-  return value?.toDate ? value.toDate().toISOString() : value instanceof Date ? value.toISOString() : value || null;
-}
-
-function serializeSubscription(id, data, now = new Date()) {
-  const accessEnd = data.accessEndAt?.toDate?.();
-  const computedStatus = data.status === "active" && accessEnd && accessEnd <= now ? "expired" : data.status;
-  return { id, ...data, status: computedStatus, accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt), createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt) };
-}
-
-function serializePayment(id, data) {
-  return { id, ...data, createdAt: serializeDate(data.createdAt), capturedAt: serializeDate(data.capturedAt) };
-}
-
-function serializeOrder(id, data) {
-  return { id, ...data, createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt), paidAt: serializeDate(data.paidAt), failedAt: serializeDate(data.failedAt), accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt) };
-}
-
-
-
-
-
-
-
 

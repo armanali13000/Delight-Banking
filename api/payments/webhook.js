@@ -7,12 +7,14 @@ export default async function handler(req, res) {
   if (!method(req, res, ["POST"])) return;
   try {
     const rawBody = await readRawBody(req);
-    const signature = req.headers["x-razorpay-signature"];
-    if (!process.env.RAZORPAY_WEBHOOK_SECRET || !verifyWebhookSignature(rawBody, signature)) {
+    const signature = req.headers["x-webhook-signature"];
+    const timestamp = req.headers["x-webhook-timestamp"];
+    if (!verifyWebhookSignature(rawBody, timestamp, signature)) {
       sendJson(res, 400, { error: "Invalid webhook signature" });
       return;
     }
-    const result = await processWebhookEvent(JSON.parse(rawBody.toString("utf8")));
+    const rawText = rawBody.toString("utf8");
+    const result = await processWebhookEvent(JSON.parse(rawText), rawText);
     sendJson(res, 200, result);
   } catch (error) {
     handleError(res, error);

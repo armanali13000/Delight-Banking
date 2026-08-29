@@ -41,8 +41,9 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /razorpayWebhookEvents/{eventId} {
+    match /cashfreeWebhookEvents/{eventId} {
       allow read, write: if false;
     }
   }
 }
+
