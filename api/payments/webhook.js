@@ -14,9 +14,17 @@ export default async function handler(req, res) {
       return;
     }
     const rawText = rawBody.toString("utf8");
-    const result = await processWebhookEvent(JSON.parse(rawText), rawText);
+    let event;
+    try {
+      event = JSON.parse(rawText);
+    } catch {
+      sendJson(res, 400, { error: "Malformed webhook payload" });
+      return;
+    }
+    const result = await processWebhookEvent(event, rawText);
     sendJson(res, 200, result);
   } catch (error) {
     handleError(res, error);
   }
 }
+

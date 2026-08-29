@@ -41,9 +41,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /cashfreeWebhookEvents/{eventId} {
+    match /webhookEvents/{eventId} {
       allow read, write: if false;
     }
   }
 }
+
 

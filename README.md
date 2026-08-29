@@ -1,6 +1,6 @@
 # Delight Banking
 
-React + Vite frontend with Vercel serverless APIs for Firebase-authenticated Cashfree payments.
+React + Vite frontend with Vercel serverless APIs for Firebase-authenticated Cashfree Hosted Web Checkout payments.
 
 ## Local Run
 
@@ -28,7 +28,7 @@ CASHFREE_CLIENT_ID
 CASHFREE_CLIENT_SECRET
 CASHFREE_ENVIRONMENT=sandbox
 CASHFREE_API_VERSION=2025-01-01
-APP_BASE_URL=https://delightbanking.vercel.app
+APP_BASE_URL=https://www.delightguidance.com
 FIREBASE_PROJECT_ID
 FIREBASE_CLIENT_EMAIL
 FIREBASE_PRIVATE_KEY
@@ -49,23 +49,41 @@ Only `VITE_` variables are exposed to the browser. Never commit live Cashfree se
 orders
 payments
 subscriptions
-cashfreeWebhookEvents
+webhookEvents
 resources
 students
 ```
 
-## Cashfree Setup
+Students can read only their own orders, payments and subscriptions. Payment writes and subscription activation are performed by Firebase Admin in Vercel functions.
 
-Use sandbox mode first. In Cashfree, configure the webhook URL:
+## Cashfree Sandbox Testing
 
-```text
-https://delightbanking.vercel.app/api/payments/webhook
-```
+Keep `CASHFREE_ENVIRONMENT=sandbox` until sandbox success, failure, pending and user-dropped flows have been verified.
 
-The checkout return URL is created by the server as:
+Configure webhook URL:
 
 ```text
-https://delightbanking.vercel.app/payment/status?order_id={order_id}
+https://www.delightguidance.com/api/payments/webhook
 ```
 
-After a student returns from checkout, the app asks the server to verify the order status with Cashfree before activating subscription access.
+The server creates return URLs as:
+
+```text
+https://www.delightguidance.com/payment/status?order_id={order_id}
+```
+
+Required webhook events:
+
+```text
+PAYMENT_SUCCESS_WEBHOOK
+PAYMENT_FAILED_WEBHOOK
+PAYMENT_USER_DROPPED_WEBHOOK
+refund events if enabled
+dispute events if enabled
+```
+
+After a student returns from checkout, the app calls a secure backend verification route and polls pending orders for a limited time. The frontend never activates access by itself.
+
+## Production Switch
+
+After sandbox testing passes, set `CASHFREE_ENVIRONMENT=production`, replace the Cashfree client ID/secret with production credentials, keep `APP_BASE_URL=https://www.delightguidance.com`, and redeploy from Vercel.

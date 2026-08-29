@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { fieldValue, getDb, serverTimestamp } from "./firebaseAdmin.js";
+import { getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { getVariant, planSnapshot } from "./plans.js";
 import {
   createCashfreeOrder,
@@ -23,7 +23,7 @@ export function addCalendarMonths(date, months) {
 
 export function makeInternalOrderNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  return `DB_${stamp}_${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+  return `DB_${stamp}_${crypto.randomBytes(6).toString("hex").toUpperCase()}`.slice(0, 45);
 }
 
 function getAppBaseUrl() {
@@ -40,6 +40,10 @@ function normalizePhone(value) {
   return "";
 }
 
+function normalizeName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 120);
+}
+
 function cleanCustomerId(value) {
   return String(value || "student").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50) || "student";
 }
@@ -48,13 +52,15 @@ function cleanDocId(value) {
   return String(value || crypto.randomUUID()).replace(/[\/#?\[\]]/g, "_");
 }
 
-function normalizeOrderStatus(status) {
+function normalizeOrderStatus(status, payments = []) {
   const value = String(status || "").toUpperCase();
   if (["PAID", "SUCCESS"].includes(value)) return "paid";
+  if (["ACTIVE", "PENDING"].includes(value)) return "pending";
+  if (value === "USER_DROPPED") return "cancelled";
   if (["FAILED", "CANCELLED", "TERMINATED"].includes(value)) return "failed";
   if (value === "EXPIRED") return "expired";
-  if (value === "USER_DROPPED") return "cancelled";
-  return "pending";
+  const hasFailedAttempt = Array.isArray(payments) && payments.some((payment) => String(payment.payment_status || payment.status || "").toUpperCase() === "FAILED");
+  return hasFailedAttempt ? "failed" : "pending";
 }
 
 function getPaidPayment(payments) {
@@ -71,8 +77,13 @@ function stringifyPaymentMethod(payment) {
   const keys = Object.keys(method).filter((key) => method[key]);
   return keys[0] || "Secure Payment";
 }
+
+function getMerchantOrderId(order) {
+  return order.merchantOrderId || order.internalOrderNumber || order.cashfreeOrderId;
+}
+
 function getGatewayOrderId(order) {
-  return order.cashfreeOrderId || order.providerOrderId || order.internalOrderNumber;
+  return order.cashfreeOrderId || order.merchantOrderId || order.internalOrderNumber;
 }
 
 function amountMatches(expected, actual) {
@@ -90,11 +101,77 @@ function serializeSubscription(id, data, now = new Date()) {
 }
 
 function serializePayment(id, data) {
-  return { id, ...data, createdAt: serializeDate(data.createdAt), capturedAt: serializeDate(data.capturedAt), updatedAt: serializeDate(data.updatedAt) };
+  return {
+    id,
+    provider: data.provider || (data.razorpayPaymentId ? "razorpay" : "cashfree"),
+    transactionId: data.cashfreePaymentId || data.cfPaymentId || data.providerPaymentId || data.razorpayPaymentId || id,
+    cashfreeOrderId: data.cashfreeOrderId || null,
+    cashfreePaymentId: data.cashfreePaymentId || data.cfPaymentId || null,
+    cfPaymentId: data.cfPaymentId || data.cashfreePaymentId || null,
+    merchantOrderId: data.merchantOrderId || data.providerOrderId || data.razorpayOrderId || null,
+    orderDocumentId: data.orderDocumentId || null,
+    userId: data.userId || null,
+    planId: data.planId || null,
+    variantId: data.variantId || null,
+    amountInRupees: data.amountInRupees ?? data.amount ?? (data.amountInPaise ? data.amountInPaise / 100 : null),
+    amountInPaise: data.amountInPaise || null,
+    currency: data.currency || "INR",
+    status: data.status || "pending",
+    verified: Boolean(data.verified),
+    paymentMethod: typeof data.paymentMethod === "string" ? data.paymentMethod : "Secure Payment",
+    refundStatus: data.refundStatus || null,
+    refundId: data.refundId || null,
+    refundAmount: data.refundAmount || null,
+    disputeStatus: data.disputeStatus || null,
+    disputeId: data.disputeId || null,
+    capturedAt: serializeDate(data.capturedAt),
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt)
+  };
 }
 
-function serializeOrder(id, data) {
-  return { id, ...data, createdAt: serializeDate(data.createdAt), updatedAt: serializeDate(data.updatedAt), paidAt: serializeDate(data.paidAt), failedAt: serializeDate(data.failedAt), accessStartAt: serializeDate(data.accessStartAt), accessEndAt: serializeDate(data.accessEndAt) };
+function safeOrder(id, data) {
+  return {
+    id,
+    orderId: id,
+    internalOrderNumber: data.internalOrderNumber || id,
+    merchantOrderId: data.merchantOrderId || data.internalOrderNumber || id,
+    cashfreeOrderId: data.cashfreeOrderId || null,
+    provider: data.provider || (data.razorpayOrderId ? "razorpay" : "cashfree"),
+    userEmail: data.userEmail || "",
+    planId: data.planId || data.trustedPlanSnapshot?.planId || null,
+    variantId: data.variantId || data.trustedPlanSnapshot?.variantId || null,
+    trustedPlanSnapshot: data.trustedPlanSnapshot || null,
+    amountInRupees: data.amountInRupees ?? data.amount ?? (data.amountInPaise ? data.amountInPaise / 100 : null),
+    amountInPaise: data.amountInPaise || null,
+    currency: data.currency || "INR",
+    paymentStatus: data.paymentStatus || "pending",
+    orderStatus: data.orderStatus || data.paymentStatus || "pending",
+    paymentId: data.paymentId || null,
+    accessStartAt: serializeDate(data.accessStartAt),
+    accessEndAt: serializeDate(data.accessEndAt),
+    paidAt: serializeDate(data.paidAt),
+    failedAt: serializeDate(data.failedAt),
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt)
+  };
+}
+
+function normalizedResult(orderRef, orderData, activation = null) {
+  const order = safeOrder(orderRef.id, orderData);
+  return {
+    status: order.paymentStatus,
+    orderId: order.orderId,
+    merchantOrderId: order.merchantOrderId,
+    transactionId: order.paymentId,
+    plan: order.trustedPlanSnapshot,
+    subscription: activation || (order.accessEndAt ? {
+      planName: order.trustedPlanSnapshot?.name || "",
+      accessStartAt: order.accessStartAt,
+      accessEndAt: order.accessEndAt
+    } : null),
+    order
+  };
 }
 
 async function activateEntitlement(tx, db, orderRef, order, paymentId, source, paidAtDate) {
@@ -133,7 +210,7 @@ async function activateEntitlement(tx, db, orderRef, order, paymentId, source, p
     updatedAt: serverTimestamp()
   });
 
-  return { subscriptionId, accessStartAt: start.toISOString(), accessEndAt: end.toISOString() };
+  return { planName: order.trustedPlanSnapshot.name, accessStartAt: start.toISOString(), accessEndAt: end.toISOString() };
 }
 
 export async function createOrderForVariant(user, variantId, billing = {}) {
@@ -144,7 +221,13 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
     throw error;
   }
 
+  const name = normalizeName(billing.name || user.name || user.displayName || user.email?.split("@")[0]);
   const phone = normalizePhone(billing.phone);
+  if (name.length < 2) {
+    const error = new Error("Enter the student name before payment.");
+    error.statusCode = 400;
+    throw error;
+  }
   if (!phone) {
     const error = new Error("Enter a valid 10-digit mobile number before payment.");
     error.statusCode = 400;
@@ -155,8 +238,8 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
   const snapshot = planSnapshot(plan, variant);
   const db = getDb();
   const now = new Date();
-  const internalOrderNumber = makeInternalOrderNumber();
-  const orderRef = db.collection("orders").doc(internalOrderNumber);
+  const merchantOrderId = makeInternalOrderNumber();
+  const orderRef = db.collection("orders").doc(merchantOrderId);
 
   let isExtension = false;
   try {
@@ -173,60 +256,31 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
     throw error;
   }
 
-  const billingRecord = {
-    name: String(billing.name || user.name || user.displayName || user.email || "Student").slice(0, 120),
-    phone,
-    address: String(billing.address || "").slice(0, 500)
-  };
-
-  try {
-    await orderRef.set({
-      internalOrderNumber,
-      provider: "cashfree",
-      userId: user.uid,
-      userEmail: user.email || "",
-      planId: snapshot.planId,
-      variantId: snapshot.variantId,
-      trustedPlanSnapshot: snapshot,
-      billing: billingRecord,
-      amount: snapshot.priceInRupees,
-      amountInPaise: snapshot.priceInPaise,
-      currency: snapshot.currency,
-      paymentStatus: "pending",
-      orderStatus: "created",
-      isExtension,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-  } catch (cause) {
-    const error = new Error("Could not store pending order.");
-    error.statusCode = 500;
-    error.safeMessage = `Firestore could not store the pending order (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
-    error.cause = cause;
-    throw error;
-  }
-
   const appBaseUrl = getAppBaseUrl();
   let gatewayOrder;
   try {
     gatewayOrder = await createCashfreeOrder({
-      order_id: internalOrderNumber,
+      order_id: merchantOrderId,
       order_amount: snapshot.priceInRupees,
-      order_currency: snapshot.currency,
+      order_currency: "INR",
       customer_details: {
         customer_id: cleanCustomerId(user.uid),
-        customer_name: billingRecord.name,
+        customer_name: name,
         customer_email: user.email || "student@delightbanking.com",
         customer_phone: phone
       },
       order_meta: {
-        return_url: `${appBaseUrl}/payment/status?order_id=${internalOrderNumber}`,
+        return_url: `${appBaseUrl}/payment/status?order_id=${merchantOrderId}`,
         notify_url: `${appBaseUrl}/api/payments/webhook`
+      },
+      order_tags: {
+        firebase_uid: cleanCustomerId(user.uid),
+        plan_id: snapshot.planId,
+        variant_id: snapshot.variantId
       },
       order_note: `${snapshot.name} ${snapshot.durationLabel}`
     });
   } catch (cause) {
-    await orderRef.set({ orderStatus: "gateway_create_failed", paymentStatus: "failed", gatewayError: cause.message, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
     const error = new Error("Could not create payment order.");
     error.statusCode = cause.statusCode || 502;
     error.safeMessage = cause.safeMessage || "Payment order creation failed. Check payment gateway credentials and mode in Vercel.";
@@ -234,13 +288,40 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
     throw error;
   }
 
-  await orderRef.set({
-    providerOrderId: gatewayOrder.order_id || internalOrderNumber,
-    cashfreeOrderId: gatewayOrder.order_id || internalOrderNumber,
-    cashfreeOrderStatus: gatewayOrder.order_status || "ACTIVE",
-    paymentSessionCreated: Boolean(gatewayOrder.payment_session_id),
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  try {
+    await orderRef.set({
+      internalOrderNumber: merchantOrderId,
+      merchantOrderId,
+      cashfreeOrderId: gatewayOrder.order_id || merchantOrderId,
+      provider: "cashfree",
+      userId: user.uid,
+      userEmail: user.email || "",
+      planId: snapshot.planId,
+      variantId: snapshot.variantId,
+      trustedPlanSnapshot: snapshot,
+      billing: {
+        name,
+        phone,
+        address: String(billing.address || "").slice(0, 500)
+      },
+      amountInRupees: snapshot.priceInRupees,
+      currency: "INR",
+      paymentStatus: "pending",
+      orderStatus: "created",
+      cashfreeOrderStatus: gatewayOrder.order_status || "ACTIVE",
+      paymentSessionCreated: Boolean(gatewayOrder.payment_session_id),
+      isExtension,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  } catch (cause) {
+    console.error("Cashfree order created but Firestore order storage failed", { merchantOrderId, cashfreeOrderId: gatewayOrder.order_id || merchantOrderId, code: cause.code || "unknown" });
+    const error = new Error("Could not store pending order.");
+    error.statusCode = 500;
+    error.safeMessage = `Firestore could not store the pending order (${cause.code || "unknown"}). ${cause.message || "Check Firebase Admin service account permissions and Firestore database setup."}`;
+    error.cause = cause;
+    throw error;
+  }
 
   if (!gatewayOrder.payment_session_id) {
     const error = new Error("Payment gateway did not return a checkout session.");
@@ -251,16 +332,13 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
 
   return {
     orderDocumentId: orderRef.id,
-    orderId: orderRef.id,
-    internalOrderNumber,
-    providerOrderId: gatewayOrder.order_id || internalOrderNumber,
-    cashfreeOrderId: gatewayOrder.order_id || internalOrderNumber,
+    merchantOrderId,
+    cashfreeOrderId: gatewayOrder.order_id || merchantOrderId,
     paymentSessionId: gatewayOrder.payment_session_id,
-    mode: getCashfreeMode(),
-    amount: snapshot.priceInRupees,
-    currency: snapshot.currency,
+    amountInRupees: snapshot.priceInRupees,
+    currency: "INR",
     plan: snapshot,
-    isExtension
+    environment: getCashfreeMode()
   };
 }
 
@@ -274,16 +352,21 @@ async function syncOrderWithCashfree(orderRef, source = "status_check") {
   }
 
   const order = orderSnap.data();
+  if (order.paymentStatus === "paid" && order.accessEndAt) {
+    return normalizedResult(orderRef, order);
+  }
+
   const gatewayOrderId = getGatewayOrderId(order);
   const [gatewayOrder, gatewayPayments] = await Promise.all([
     fetchCashfreeOrder(gatewayOrderId),
     fetchCashfreePayments(gatewayOrderId)
   ]);
 
-  const normalizedStatus = normalizeOrderStatus(gatewayOrder.order_status || gatewayOrder.payment_status);
+  const normalizedStatus = normalizeOrderStatus(gatewayOrder.order_status || gatewayOrder.payment_status, gatewayPayments);
   const gatewayAmount = gatewayOrder.order_amount ?? gatewayOrder.payment_amount;
   const gatewayCurrency = gatewayOrder.order_currency || order.currency;
-  if (!amountMatches(order.amount || order.trustedPlanSnapshot.priceInRupees, gatewayAmount) || gatewayCurrency !== order.currency) {
+  const expectedAmount = order.amountInRupees ?? order.amount ?? order.trustedPlanSnapshot?.priceInRupees;
+  if (!amountMatches(expectedAmount, gatewayAmount) || gatewayCurrency !== "INR" || order.currency !== "INR") {
     const error = new Error("Payment details do not match the trusted order.");
     error.statusCode = 400;
     throw error;
@@ -302,50 +385,52 @@ async function syncOrderWithCashfree(orderRef, source = "status_check") {
       const existingPayment = await tx.get(paymentRef);
       if (freshOrder.paymentStatus === "paid" && existingPayment.exists) {
         activation = {
+          planName: freshOrder.trustedPlanSnapshot?.name || "",
           accessStartAt: serializeDate(freshOrder.accessStartAt),
           accessEndAt: serializeDate(freshOrder.accessEndAt)
         };
         return;
       }
       activation = await activateEntitlement(tx, db, orderRef, freshOrder, paymentId, source, paidAt);
+      const amountInRupees = Number(paidPayment?.payment_amount || gatewayAmount || freshOrder.amountInRupees || 0);
       tx.set(paymentRef, {
         provider: "cashfree",
-        userId: freshOrder.userId,
-        userEmail: freshOrder.userEmail || "",
-        orderDocumentId: orderRef.id,
-        providerOrderId: gatewayOrderId,
         cashfreeOrderId: gatewayOrderId,
         cashfreePaymentId: paymentId,
-        amount: Number(paidPayment?.payment_amount || gatewayAmount || freshOrder.amount || 0),
-        amountInPaise: Math.round(Number(paidPayment?.payment_amount || gatewayAmount || freshOrder.amount || 0) * 100),
+        cfPaymentId: paidPayment?.cf_payment_id || paymentId,
+        merchantOrderId: getMerchantOrderId(freshOrder),
+        orderDocumentId: orderRef.id,
+        userId: freshOrder.userId,
+        userEmail: freshOrder.userEmail || "",
+        planId: freshOrder.planId,
+        variantId: freshOrder.variantId,
+        amountInRupees,
         currency: paidPayment?.payment_currency || gatewayCurrency,
         status: paidPayment?.payment_status || gatewayOrder.order_status || "SUCCESS",
-        paymentMethod: stringifyPaymentMethod(paidPayment),
         verified: true,
-        signatureVerified: source === "cashfree_webhook",
-        gatewayPayload: paidPayment || null,
-        createdAt: existingPayment.exists ? existingPayment.data().createdAt : serverTimestamp(),
+        paymentMethod: stringifyPaymentMethod(paidPayment),
         capturedAt: paidAt,
+        createdAt: existingPayment.exists ? existingPayment.data().createdAt : serverTimestamp(),
         updatedAt: serverTimestamp()
       }, { merge: true });
     });
   } else {
-    await orderRef.set({
+    const nextOrder = {
       paymentStatus: normalizedStatus,
       orderStatus: normalizedStatus,
       cashfreeOrderStatus: gatewayOrder.order_status || null,
-      gatewayPayload: gatewayOrder,
-      failedAt: ["failed", "expired", "cancelled"].includes(normalizedStatus) ? serverTimestamp() : fieldValue.delete(),
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    };
+    if (["failed", "expired", "cancelled"].includes(normalizedStatus)) nextOrder.failedAt = serverTimestamp();
+    await orderRef.set(nextOrder, { merge: true });
   }
 
   const fresh = await orderRef.get();
-  return { ...serializeOrder(fresh.id, fresh.data()), gatewayStatus: gatewayOrder.order_status || null, payments: Array.isArray(gatewayPayments) ? gatewayPayments.length : 0, ...activation };
+  return normalizedResult(orderRef, fresh.data(), activation);
 }
 
 export async function verifyAndRecordPayment(user, payload) {
-  const orderId = payload.orderId || payload.order_id || payload.internalOrderNumber;
+  const orderId = payload.orderId || payload.order_id || payload.merchantOrderId;
   if (!orderId) {
     const error = new Error("Order id is required for payment verification.");
     error.statusCode = 400;
@@ -359,9 +444,15 @@ export async function verifyAndRecordPayment(user, payload) {
     error.statusCode = 404;
     throw error;
   }
-  if (snap.data().userId !== user.uid) {
+  const order = snap.data();
+  if (order.userId !== user.uid) {
     const error = new Error("This order belongs to another user.");
     error.statusCode = 403;
+    throw error;
+  }
+  if (getMerchantOrderId(order) !== orderId && order.cashfreeOrderId !== orderId) {
+    const error = new Error("Order details do not match the trusted record.");
+    error.statusCode = 400;
     throw error;
   }
   return syncOrderWithCashfree(orderRef, "checkout_status_check");
@@ -381,12 +472,14 @@ export async function getOrderStatusForUser(user, orderId) {
     error.statusCode = 404;
     throw error;
   }
-  if (snap.data().userId !== user.uid) {
+  const order = snap.data();
+  if (order.userId !== user.uid) {
     const error = new Error("Not allowed to view this order.");
     error.statusCode = 403;
     throw error;
   }
-  return syncOrderWithCashfree(orderRef, "status_check");
+  if (order.paymentStatus === "pending") return syncOrderWithCashfree(orderRef, "status_check");
+  return normalizedResult(orderRef, order);
 }
 
 export async function getUserPaymentSummary(user) {
@@ -400,45 +493,75 @@ export async function getUserPaymentSummary(user) {
   return {
     subscriptions: subsSnap.docs.map((doc) => serializeSubscription(doc.id, doc.data(), now)),
     payments: paymentsSnap.docs.map((doc) => serializePayment(doc.id, doc.data())),
-    orders: ordersSnap.docs.map((doc) => serializeOrder(doc.id, doc.data()))
+    orders: ordersSnap.docs.map((doc) => safeOrder(doc.id, doc.data()))
   };
 }
 
 function getWebhookOrderId(event) {
-  return event?.data?.order?.order_id || event?.data?.payment?.order_id || event?.data?.order_id || event?.order_id || null;
+  return event?.data?.order?.order_id || event?.data?.payment?.order_id || event?.data?.refund?.order_id || event?.data?.dispute?.order_id || event?.data?.order_id || event?.order_id || null;
+}
+
+function getWebhookPaymentId(event) {
+  return event?.data?.payment?.cf_payment_id || event?.data?.payment?.payment_id || event?.data?.refund?.cf_payment_id || event?.data?.dispute?.cf_payment_id || null;
 }
 
 function getWebhookEventId(event, rawFallback = "") {
-  return event?.event_id || event?.id || event?.data?.payment?.cf_payment_id || event?.data?.payment?.payment_id || crypto.createHash("sha256").update(`${event?.type || event?.event || "event"}:${getWebhookOrderId(event) || "none"}:${rawFallback}`).digest("hex");
+  return event?.event_id || event?.id || getWebhookPaymentId(event) || crypto.createHash("sha256").update(`${event?.type || event?.event || "event"}:${getWebhookOrderId(event) || "none"}:${rawFallback}`).digest("hex");
+}
+
+async function recordRefundOrDispute(db, event, orderId) {
+  const type = String(event.type || event.event || "").toUpperCase();
+  const paymentId = cleanDocId(getWebhookPaymentId(event) || event?.data?.refund?.cf_payment_id || event?.data?.dispute?.cf_payment_id || orderId);
+  const payload = { updatedAt: serverTimestamp() };
+  if (type.includes("REFUND")) {
+    payload.refundStatus = event?.data?.refund?.refund_status || type;
+    payload.refundId = event?.data?.refund?.cf_refund_id || event?.data?.refund?.refund_id || null;
+    payload.refundAmount = event?.data?.refund?.refund_amount || null;
+  }
+  if (type.includes("DISPUTE")) {
+    payload.disputeStatus = event?.data?.dispute?.dispute_status || type;
+    payload.disputeId = event?.data?.dispute?.cf_dispute_id || event?.data?.dispute?.dispute_id || null;
+  }
+  await db.collection("payments").doc(paymentId).set(payload, { merge: true });
 }
 
 export async function processWebhookEvent(event, rawFallback = "") {
   const db = getDb();
   const eventId = cleanDocId(getWebhookEventId(event, rawFallback));
-  const eventRef = db.collection("cashfreeWebhookEvents").doc(eventId);
+  const eventRef = db.collection("webhookEvents").doc(eventId);
   const existing = await eventRef.get();
-  if (existing.exists) return { processed: false, duplicate: true };
+  if (existing.exists) return { processed: true, duplicate: true };
 
-  await eventRef.set({ type: event.type || event.event || "cashfree_event", receivedAt: serverTimestamp(), processed: false });
+  const type = event.type || event.event || "cashfree_event";
   const orderId = getWebhookOrderId(event);
+  await eventRef.set({ provider: "cashfree", type, orderId: orderId || null, receivedAt: serverTimestamp(), processed: false });
   if (!orderId) {
-    await eventRef.update({ processed: true, ignored: true, updatedAt: serverTimestamp() });
-    return { processed: true, ignored: true };
+    const error = new Error("Webhook order was not found in the payload.");
+    error.statusCode = 400;
+    throw error;
   }
 
   const orderRef = db.collection("orders").doc(orderId);
   const snap = await orderRef.get();
   if (!snap.exists) {
-    await eventRef.update({ processed: true, unmatched: true, orderId, updatedAt: serverTimestamp() });
-    return { processed: true, unmatched: true };
+    const error = new Error("Webhook order was not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const upperType = String(type).toUpperCase();
+  if (upperType.includes("REFUND") || upperType.includes("DISPUTE")) {
+    await recordRefundOrDispute(db, event, orderId);
+    await eventRef.update({ processed: true, updatedAt: serverTimestamp() });
+    return { processed: true, recorded: true };
   }
 
   try {
     const result = await syncOrderWithCashfree(orderRef, "cashfree_webhook");
-    await eventRef.update({ processed: true, orderId, paymentStatus: result.paymentStatus, updatedAt: serverTimestamp() });
-    return { processed: true, paymentStatus: result.paymentStatus };
+    await eventRef.update({ processed: true, paymentStatus: result.status, updatedAt: serverTimestamp() });
+    return { processed: true, paymentStatus: result.status };
   } catch (cause) {
-    await eventRef.update({ processed: false, orderId, error: cause.message, updatedAt: serverTimestamp() });
+    await eventRef.update({ processed: false, error: cause.message, updatedAt: serverTimestamp() }).catch(() => {});
     throw cause;
   }
 }

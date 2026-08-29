@@ -13,6 +13,7 @@
     "seed:plans": "node scripts/seed-plans.cjs"
   },
   "dependencies": {
+    "@cashfreepayments/cashfree-js": "^1.0.7",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase-admin": "^12.7.0",
     "react": "^19.0.0",
