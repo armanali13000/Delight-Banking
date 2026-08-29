@@ -525,44 +525,48 @@ async function recordRefundOrDispute(db, event, orderId) {
   await db.collection("payments").doc(paymentId).set(payload, { merge: true });
 }
 
+function isSupportedWebhookType(type) {
+  const value = String(type || "").toUpperCase();
+  return value.includes("PAYMENT_SUCCESS") || value.includes("PAYMENT_FAILED") || value.includes("PAYMENT_USER_DROPPED") || value.includes("REFUND") || value.includes("DISPUTE");
+}
+
 export async function processWebhookEvent(event, rawFallback = "") {
+  const type = event.type || event.event || "cashfree_event";
+  const orderId = getWebhookOrderId(event);
+
+  if (!orderId || !isSupportedWebhookType(type)) {
+    return { received: true, processed: false, reason: "test_or_unsupported_event" };
+  }
+
   const db = getDb();
   const eventId = cleanDocId(getWebhookEventId(event, rawFallback));
   const eventRef = db.collection("webhookEvents").doc(eventId);
   const existing = await eventRef.get();
-  if (existing.exists) return { processed: true, duplicate: true };
+  if (existing.exists) return { received: true, processed: false, duplicate: true };
 
-  const type = event.type || event.event || "cashfree_event";
-  const orderId = getWebhookOrderId(event);
-  await eventRef.set({ provider: "cashfree", type, orderId: orderId || null, receivedAt: serverTimestamp(), processed: false });
-  if (!orderId) {
-    const error = new Error("Webhook order was not found in the payload.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await eventRef.set({ provider: "cashfree", type, orderId, receivedAt: serverTimestamp(), processed: false });
 
   const orderRef = db.collection("orders").doc(orderId);
   const snap = await orderRef.get();
   if (!snap.exists) {
-    const error = new Error("Webhook order was not found.");
-    error.statusCode = 404;
-    throw error;
+    await eventRef.update({ processed: false, ignored: true, reason: "unknown_order", updatedAt: serverTimestamp() });
+    console.info("Cashfree webhook ignored", { eventType: type, orderFound: false, reconciliationRequired: true });
+    return { received: true, processed: false, reason: "unknown_order" };
   }
 
   const upperType = String(type).toUpperCase();
   if (upperType.includes("REFUND") || upperType.includes("DISPUTE")) {
     await recordRefundOrDispute(db, event, orderId);
     await eventRef.update({ processed: true, updatedAt: serverTimestamp() });
-    return { processed: true, recorded: true };
+    return { received: true, processed: true, recorded: true };
   }
 
   try {
     const result = await syncOrderWithCashfree(orderRef, "cashfree_webhook");
     await eventRef.update({ processed: true, paymentStatus: result.status, updatedAt: serverTimestamp() });
-    return { processed: true, paymentStatus: result.status };
+    return { received: true, processed: true, paymentStatus: result.status };
   } catch (cause) {
     await eventRef.update({ processed: false, error: cause.message, updatedAt: serverTimestamp() }).catch(() => {});
     throw cause;
   }
 }
-
