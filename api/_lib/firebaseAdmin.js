@@ -14,6 +14,13 @@ function required(name) {
 }
 
 function privateKey() {
+  if (process.env.FIREBASE_PRIVATE_KEY_BASE64?.trim()) {
+    return Buffer.from(
+      process.env.FIREBASE_PRIVATE_KEY_BASE64.trim(),
+      "base64"
+    ).toString("utf8").trim();
+  }
+
   return required("FIREBASE_PRIVATE_KEY")
     .replace(/^"|"$/g, "")
     .replace(/^'|'$/g, "")
@@ -33,7 +40,7 @@ export function getAdminApp() {
   } catch (cause) {
     const error = new Error("Firebase Admin configuration is invalid.");
     error.statusCode = 500;
-    error.safeMessage = "Firebase Admin configuration is invalid. Check FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL, and FIREBASE_PROJECT_ID in Vercel.";
+    error.safeMessage = "Firebase Admin configuration is invalid. Check FIREBASE_PRIVATE_KEY_BASE64 or FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL, and FIREBASE_PROJECT_ID in Vercel.";
     error.cause = cause;
     throw error;
   }
@@ -64,3 +71,4 @@ export async function requireUser(req) {
 
 export const serverTimestamp = FieldValue.serverTimestamp;
 export const fieldValue = FieldValue;
+

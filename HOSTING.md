@@ -18,7 +18,8 @@ CASHFREE_API_VERSION=2025-01-01
 APP_BASE_URL=https://www.delightguidance.com
 FIREBASE_PROJECT_ID
 FIREBASE_CLIENT_EMAIL
-FIREBASE_PRIVATE_KEY
+FIREBASE_PRIVATE_KEY_BASE64
+FIREBASE_PRIVATE_KEY (fallback)
 VITE_FIREBASE_API_KEY
 VITE_FIREBASE_AUTH_DOMAIN
 VITE_FIREBASE_PROJECT_ID
@@ -57,3 +58,4 @@ Enable payment success, failed and user-dropped webhook events. Refund and dispu
 ## Deploy
 
 Push to `main`. Vercel rebuilds automatically. Switch to production Cashfree credentials only after sandbox payment testing passes.
+

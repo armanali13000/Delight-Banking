@@ -31,7 +31,8 @@ CASHFREE_API_VERSION=2025-01-01
 APP_BASE_URL=https://www.delightguidance.com
 FIREBASE_PROJECT_ID
 FIREBASE_CLIENT_EMAIL
-FIREBASE_PRIVATE_KEY
+FIREBASE_PRIVATE_KEY_BASE64
+FIREBASE_PRIVATE_KEY (fallback)
 VITE_FIREBASE_API_KEY
 VITE_FIREBASE_AUTH_DOMAIN
 VITE_FIREBASE_PROJECT_ID
@@ -87,3 +88,4 @@ After a student returns from checkout, the app calls a secure backend verificati
 ## Production Switch
 
 After sandbox testing passes, set `CASHFREE_ENVIRONMENT=production`, replace the Cashfree client ID/secret with production credentials, keep `APP_BASE_URL=https://www.delightguidance.com`, and redeploy from Vercel.
+
