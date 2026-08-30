@@ -59,3 +59,23 @@ Enable payment success, failed and user-dropped webhook events. Refund and dispu
 
 Push to `main`. Vercel rebuilds automatically. Switch to production Cashfree credentials only after sandbox payment testing passes.
 
+
+## Production Domain and Sitemap
+
+Production payments must use these server-only Vercel values:
+
+```text
+CASHFREE_ENVIRONMENT=production
+CASHFREE_API_VERSION=2025-01-01
+APP_BASE_URL=https://www.delightguidance.com
+```
+
+The server rejects production payment-order creation unless `APP_BASE_URL` is exactly `https://www.delightguidance.com`. Return and webhook URLs are generated server-side from that value.
+
+Submit this sitemap in Google Search Console after the Vercel production deployment is live:
+
+```text
+https://www.delightguidance.com/sitemap.xml
+```
+
+Do not place private routes, checkout routes, payment-status routes, admin routes or API routes in the sitemap.

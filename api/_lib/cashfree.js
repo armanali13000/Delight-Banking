@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 const CASHFREE_API_VERSION = process.env.CASHFREE_API_VERSION || "2025-01-01";
 
 export function getCashfreeMode() {
-  return String(process.env.CASHFREE_ENVIRONMENT || process.env.CASHFREE_MODE || "sandbox").toLowerCase() === "production" ? "production" : "sandbox";
+  const environment = String(process.env.CASHFREE_ENVIRONMENT || "sandbox").trim().toLowerCase();
+  return environment === "production" ? "production" : "sandbox";
 }
 
 function getBaseUrl() {

@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+
+Disallow: /admin
+Disallow: /admin/
+Disallow: /dashboard
+Disallow: /dashboard/
+Disallow: /student-desk
+Disallow: /student-desk/
+Disallow: /api/
+Disallow: /payment/status
+Disallow: /checkout
+
+Sitemap: https://www.delightguidance.com/sitemap.xml

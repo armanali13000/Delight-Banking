@@ -27,8 +27,26 @@ export function makeInternalOrderNumber() {
 }
 
 function getAppBaseUrl() {
-  const configured = process.env.APP_BASE_URL || process.env.PUBLIC_APP_BASE_URL;
-  if (configured) return configured.replace(/\/$/, "");
+  const configured = String(process.env.APP_BASE_URL || process.env.PUBLIC_APP_BASE_URL || "").trim().replace(/\/+$/, "");
+  const environment = getCashfreeMode();
+
+  if (configured) {
+    if (environment === "production" && configured !== "https://www.delightguidance.com") {
+      const error = new Error("Production APP_BASE_URL must be https://www.delightguidance.com.");
+      error.statusCode = 500;
+      error.safeMessage = "APP_BASE_URL must be https://www.delightguidance.com before production payments can be created.";
+      throw error;
+    }
+    return configured;
+  }
+
+  if (environment === "production") {
+    const error = new Error("APP_BASE_URL is required for production payments.");
+    error.statusCode = 500;
+    error.safeMessage = "APP_BASE_URL must be configured as https://www.delightguidance.com before production payments can be created.";
+    throw error;
+  }
+
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:5173";
 }
@@ -266,7 +284,7 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
       customer_details: {
         customer_id: cleanCustomerId(user.uid),
         customer_name: name,
-        customer_email: user.email || "student@delightbanking.com",
+        customer_email: user.email || "student@delightguidance.com",
         customer_phone: phone
       },
       order_meta: {

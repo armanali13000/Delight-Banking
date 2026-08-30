@@ -37,6 +37,127 @@ const examCards = [
   ["RRB", "RRB Clerk", "Daily topic targets, cut-off based preparation, and high-retention revision cycles."]
 ];
 
+const productionSiteUrl = "https://www.delightguidance.com";
+const homeTitle = "Delight Banking – Banking Exam Mentorship & Guidance";
+const homeDescription = "Prepare for banking and insurance examinations with structured targets, personal mentorship, mock analysis and guidance from Imran Sir.";
+
+function setMetaTag(attribute, key, content) {
+  let tag = document.head.querySelector(`meta[${attribute}="${key}"]`);
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.setAttribute(attribute, key);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute("content", content);
+}
+
+function setCanonicalLink(href) {
+  let link = document.head.querySelector('link[rel="canonical"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("rel", "canonical");
+    document.head.appendChild(link);
+  }
+  link.setAttribute("href", href);
+}
+
+function getStructuredData(path) {
+  if (path !== "/" && path !== "/privacy-policy") return null;
+
+  const baseGraph = [
+    {
+      "@context": "https://schema.org",
+      "@type": ["Organization", "EducationalOrganization"],
+      "@id": `${productionSiteUrl}/#organization`,
+      "name": "Delight Banking",
+      "url": `${productionSiteUrl}/`,
+      "logo": `${productionSiteUrl}/delight-logo.png`,
+      "sameAs": []
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "@id": `${productionSiteUrl}/#website`,
+      "name": "Delight Banking",
+      "url": `${productionSiteUrl}/`,
+      "publisher": { "@id": `${productionSiteUrl}/#organization` }
+    }
+  ];
+
+  if (path === "/") {
+    baseGraph.push({
+      "@context": "https://schema.org",
+      "@type": "OfferCatalog",
+      "name": "Delight Banking mentorship plans",
+      "url": `${productionSiteUrl}/#plans`,
+      "itemListElement": plans.flatMap((plan) => plan.variants.map((variant) => ({
+        "@type": "Offer",
+        "name": `${plan.name} - ${variant.durationLabel}`,
+        "price": String(variant.priceInRupees),
+        "priceCurrency": "INR",
+        "availability": "https://schema.org/InStock",
+        "url": `${productionSiteUrl}/checkout/${variant.variantId}`,
+        "itemOffered": {
+          "@type": "Course",
+          "name": plan.name,
+          "description": plan.description,
+          "provider": { "@id": `${productionSiteUrl}/#organization` }
+        }
+      })))
+    });
+  }
+
+  if (path === "/privacy-policy") {
+    baseGraph.push({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": `${productionSiteUrl}/` },
+        { "@type": "ListItem", "position": 2, "name": "Privacy Policy", "item": `${productionSiteUrl}/privacy-policy` }
+      ]
+    });
+  }
+
+  return baseGraph;
+}
+
+function applyPageSeo(path) {
+  const normalizedPath = path.replace(/\/$/, "") || "/";
+  const isPrivateRoute = normalizedPath.startsWith("/admin") || normalizedPath.startsWith("/checkout") || normalizedPath.startsWith("/payment") || normalizedPath.startsWith("/student-desk") || normalizedPath.startsWith("/dashboard") || normalizedPath.startsWith("/login") || normalizedPath.startsWith("/signup") || normalizedPath.startsWith("/forgot");
+  const isPrivacy = normalizedPath === "/privacy-policy";
+  const canonicalPath = isPrivacy ? "/privacy-policy" : "/";
+  const title = isPrivacy ? "Privacy Policy | Delight Banking" : homeTitle;
+  const description = isPrivacy ? "Privacy information for Delight Banking students using login, payment and mentorship access features." : homeDescription;
+  const canonical = `${productionSiteUrl}${canonicalPath}`;
+
+  document.title = title;
+  setCanonicalLink(canonical);
+  setMetaTag("name", "description", description);
+  setMetaTag("name", "robots", isPrivateRoute ? "noindex,nofollow" : "index,follow");
+  setMetaTag("property", "og:site_name", "Delight Banking");
+  setMetaTag("property", "og:type", "website");
+  setMetaTag("property", "og:title", title);
+  setMetaTag("property", "og:description", description);
+  setMetaTag("property", "og:url", canonical);
+  setMetaTag("property", "og:image", `${productionSiteUrl}/delight-logo.png`);
+  setMetaTag("name", "twitter:card", "summary");
+  setMetaTag("name", "twitter:title", title);
+  setMetaTag("name", "twitter:description", description);
+
+  const structuredData = getStructuredData(isPrivateRoute ? "" : canonicalPath);
+  let script = document.head.querySelector('script[type="application/ld+json"][data-delight-seo="true"]');
+  if (!structuredData) {
+    if (script) script.remove();
+    return;
+  }
+  if (!script) {
+    script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.dataset.delightSeo = "true";
+    document.head.appendChild(script);
+  }
+  script.textContent = JSON.stringify(structuredData);
+}
 function formatPrice(rupees) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(rupees);
 }
@@ -456,7 +577,7 @@ function AdminPage({ path }) {
   return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
-  return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightbanking.com">support@delightbanking.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
+  return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
 }
 
 export default function App() {
@@ -464,6 +585,7 @@ export default function App() {
   useEffect(() => { const updateRoute = () => setRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`); window.addEventListener("hashchange", updateRoute); window.addEventListener("popstate", updateRoute); return () => { window.removeEventListener("hashchange", updateRoute); window.removeEventListener("popstate", updateRoute); }; }, []);
   const url = new URL(window.location.href);
   const path = url.pathname.replace(appBase, "/");
+  useEffect(() => { applyPageSeo(path); }, [path]);
   const checkoutMatch = path.match(/^\/checkout\/([^/]+)\/?$/);
   const paymentMatch = path.match(/^\/payment\/(success|failed|cancelled|processing|verification-failed|pending|status)\/?$/);
   void route;
