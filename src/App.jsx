@@ -62,7 +62,7 @@ function setCanonicalLink(href) {
 }
 
 function getStructuredData(path) {
-  if (path !== "/" && path !== "/privacy-policy") return null;
+  if (path !== "/" && path !== "/about" && path !== "/privacy-policy") return null;
 
   const baseGraph = [
     {
@@ -107,6 +107,26 @@ function getStructuredData(path) {
     });
   }
 
+  if (path === "/about") {
+    baseGraph.push({
+      "@context": "https://schema.org",
+      "@type": "Person",
+      "@id": `${productionSiteUrl}/about#imran-sir`,
+      "name": "Imran Sir",
+      "jobTitle": "Banking Examination Mentor",
+      "image": `${productionSiteUrl}/images/imran-sir-banking-mentor.webp`,
+      "worksFor": { "@id": `${productionSiteUrl}/#organization` }
+    });
+    baseGraph.push({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": `${productionSiteUrl}/` },
+        { "@type": "ListItem", "position": 2, "name": "About", "item": `${productionSiteUrl}/about` }
+      ]
+    });
+  }
+
   if (path === "/privacy-policy") {
     baseGraph.push({
       "@context": "https://schema.org",
@@ -125,9 +145,10 @@ function applyPageSeo(path) {
   const normalizedPath = path.replace(/\/$/, "") || "/";
   const isPrivateRoute = normalizedPath.startsWith("/admin") || normalizedPath.startsWith("/checkout") || normalizedPath.startsWith("/payment") || normalizedPath.startsWith("/student-desk") || normalizedPath.startsWith("/dashboard") || normalizedPath.startsWith("/login") || normalizedPath.startsWith("/signup") || normalizedPath.startsWith("/forgot");
   const isPrivacy = normalizedPath === "/privacy-policy";
-  const canonicalPath = isPrivacy ? "/privacy-policy" : "/";
-  const title = isPrivacy ? "Privacy Policy | Delight Banking" : homeTitle;
-  const description = isPrivacy ? "Privacy information for Delight Banking students using login, payment and mentorship access features." : homeDescription;
+  const isAbout = normalizedPath === "/about";
+  const canonicalPath = isPrivacy ? "/privacy-policy" : isAbout ? "/about" : "/";
+  const title = isPrivacy ? "Privacy Policy | Delight Banking" : isAbout ? "Meet Imran Sir | Delight Banking" : homeTitle;
+  const description = isPrivacy ? "Privacy information for Delight Banking students using login, payment and mentorship access features." : isAbout ? "Learn about Imran Sir's target-based approach to banking and insurance examination mentorship, preparation strategy and mock analysis at Delight Banking." : homeDescription;
   const canonical = `${productionSiteUrl}${canonicalPath}`;
 
   document.title = title;
@@ -202,6 +223,7 @@ function Header({ user, onAuth, onLogout }) {
       <nav className="main-nav">
         <a href={appBase}>Home</a>
         <a href={`${appBase}#programs`}>Exams</a>
+        <a href={`${appBase}about`}>About</a>
         <a href={`${appBase}#strategy`}>Strategy</a>
         <a href={`${appBase}#plans`}>Plans</a>
         <a href={`${appBase}student-desk`}>Student Desk</a>
@@ -237,11 +259,13 @@ function PlanCard({ plan, ownedVariants = new Set() }) {
       <span className="chip">{plan.coverage}</span>
       <h3>{plan.name}</h3>
       <p className="plan-subtitle">{plan.subtitle}</p>
+      <p className="mentor-byline">Mentorship by Imran Sir</p>
       <p>{plan.description}</p>
       <div className="duration-tabs" role="radiogroup" aria-label={`${plan.name} durations`}>
         {plan.variants.map((variant) => <button className={variant.variantId === selected.variantId ? "active" : ""} key={variant.variantId} type="button" role="radio" aria-checked={variant.variantId === selected.variantId} onClick={() => setSelectedId(variant.variantId)}><strong>{variant.durationLabel}</strong><span>{formatPrice(variant.priceInRupees)}</span></button>)}
       </div>
       <div className="plan-price-row"><div className="price">{formatPrice(selected.priceInRupees)}</div><span className="status-pill">Validity: {selected.durationLabel}</span></div>
+      {plan.planId === "personal-coaching" && <div className="plan-mentor-mini"><img src={mentorPhotoPath} width="72" height="72" loading="lazy" alt="Imran Sir, banking examination mentor at Delight Banking" /><div><strong>Imran Sir</strong><span>Banking Examination Mentor</span></div></div>}
       <ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul>
       <div className="form-actions"><button className="primary-button full" type="button" onClick={() => routeTo(`${appBase}checkout/${selected.variantId}`)}>{ownsVariant ? "Renew Plan" : "Choose Plan"}</button><a className="ghost-button full" href={`${appBase}checkout/${selected.variantId}`}>View Details</a></div>
     </article>
@@ -264,7 +288,8 @@ function HomePage() {
     <>
       <Header user={user} onAuth={setAuthMode} onLogout={logout} />
       <main>
-        <section className="hero" id="home"><div className="hero-copy"><p className="eyebrow">SBI | IBPS | RRB</p><h1>Delight Banking</h1><p>Premium banking exam guidance with mentor strategy, study targets, current affairs, and plan-based resources unlocked only after verified payment.</p><div className="hero-actions"><a className="primary-button" href="#plans">Choose Mentorship</a><a className="ghost-button" href={`${appBase}student-desk`}>Student Desk</a></div></div><div className="hero-board mentor-board"><img className="mentor-photo" src={mentorPhotoPath} alt="Imran Sir - Delight Banking Mentor" onError={(event) => { event.currentTarget.style.display = "none"; }} /><div className="rank-card main-rank"><span>Mentor</span><strong>Imran Sir</strong><small>Banking exam strategy and personal guidance</small></div></div></section>
+        <section className="hero" id="home"><div className="hero-copy"><p className="eyebrow">SBI | IBPS | RRB | Insurance</p><h1 className="hero-title">Prepare for Banking Exams with the Right Strategy</h1><p>Structured targets, practical preparation guidance, mock analysis and personal mentorship to help banking and insurance aspirants prepare with confidence.</p><div className="hero-actions"><a className="primary-button" href="#plans">Explore Mentorship Plans</a><a className="ghost-button" href="https://www.youtube.com/@DelightBanking" target="_blank" rel="noreferrer">Watch Free Classes</a></div></div><div className="hero-board mentor-board"><img className="mentor-photo" src={mentorPhotoPath} width="1280" height="1024" fetchpriority="high" alt="Imran Sir, banking examination mentor at Delight Banking" onError={(event) => { event.currentTarget.style.display = "none"; }} /><div className="rank-card main-rank mentor-identity"><span>Imran Sir</span><strong>Banking Examination Mentor</strong></div></div></section>
+        <section className="section mentor-section" id="mentor"><div className="mentor-section-media"><img src={mentorPhotoPath} width="1280" height="1024" loading="lazy" alt="Imran Sir, banking examination mentor at Delight Banking" /></div><div className="mentor-section-copy"><p className="eyebrow">Meet Your Mentor</p><h2>Imran Sir</h2><p className="mentor-role">Banking Examination Mentor</p><p>Imran Sir guides banking and insurance examination aspirants through structured preparation targets, practical strategies, mock-test analysis and plan-specific mentorship. His approach focuses on consistency, disciplined execution and identifying the areas where each student needs improvement.</p><div className="mentor-feature-grid">{["Structured preparation strategy", "Daily and weekly targets", "Prelims and Mains guidance", "Mock-test and performance analysis", "Plan-specific personal support", "Banking and insurance examination preparation"].map((item) => <span key={item}>{item}</span>)}</div><a className="primary-button" href="#plans">View Mentorship Plans</a></div></section>
         <section className="section" id="programs"><div className="section-heading"><p className="eyebrow">Exam Tracks</p><h2>Guidance built around your target exam</h2><p>Focused preparation for prelims, mains, current affairs, revision, and mock-test analysis.</p></div><div className="program-grid">{examCards.map(([tag, title, text]) => <article className="premium-card" key={title}><span className="chip">{tag}</span><h3>{title}</h3><p>{text}</p></article>)}</div></section>
         <section className="strategy-band" id="strategy"><div><p className="eyebrow">Mentor Guidance</p><h2>Strategy, study plans, and daily execution with Imran Sir</h2><p>Students receive plan-specific guidance and resources after secure payment verification.</p></div>{["How to clear exams", "Study plans", "Daily current affairs"].map((title, index) => <article className="strategy-item" key={title}><span>{String(index + 1).padStart(2, "0")}</span><h3>{title}</h3><p>{index === 0 ? "Attempt planning, mock analysis, score tracking, and sectional decision rules." : index === 1 ? "Weekly preparation maps for Quant, Reasoning, English, GA, and banking awareness." : "Exam-focused updates with banking, finance, economy, and national revision tags."}</p></article>)}</section>
         <section className="section" id="plans"><div className="section-heading"><p className="eyebrow">Mentorship Plans</p><h2>Choose one-time access</h2><p>Monthly plans are one-time payments, not automatic recurring charges. Access starts after verified payment activation.</p></div><PlanGrid paymentSummary={paymentSummary} /></section>
@@ -403,6 +428,12 @@ function ProfileForm({ profile, user, profileMessage, updateProfile, saveProfile
   return <form className="profile-edit-panel" onSubmit={saveProfile}><div><p className="eyebrow">Profile</p><h2>Student profile</h2><p>Keep your profile details updated for guidance, receipts, and exam planning.</p></div><div className="profile-form-grid"><label>Name<input value={profile.name || ""} onChange={(event) => updateProfile("name", event.target.value)} placeholder="Your full name" /></label><label>Phone<input value={profile.phone || ""} onChange={(event) => updateProfile("phone", event.target.value)} placeholder="Mobile number" /></label><label>City<input value={profile.city || ""} onChange={(event) => updateProfile("city", event.target.value)} placeholder="Your city" /></label><label>Target Exam<select value={profile.targetExam || exams[0]} onChange={(event) => updateProfile("targetExam", event.target.value)}>{exams.map((item) => <option key={item}>{item}</option>)}</select></label><label className="wide-field">Address<textarea rows="3" value={profile.address || ""} onChange={(event) => updateProfile("address", event.target.value)} placeholder="Address or study location" /></label></div><button className="primary-button" type="submit">{user ? "Save Profile" : "Login to Save"}</button>{profileMessage && <p className="form-message">{profileMessage}</p>}</form>;
 }
 
+function AboutPage() {
+  const [authMode, setAuthMode] = useState(null);
+  const [user, setUser] = useState(null);
+  useEffect(() => { listenToAuth(setUser); }, []);
+  return <Shell user={user} onAuth={setAuthMode}><main className="about-page"><section className="section about-hero"><div className="about-copy"><p className="eyebrow">Meet Your Mentor</p><h1 className="page-title">Imran Sir</h1><p className="mentor-role">Banking Examination Mentor</p><p>Imran Sir guides banking and insurance examination aspirants through structured preparation targets, practical strategies, mock-test analysis and plan-specific mentorship.</p><div className="hero-actions"><a className="primary-button" href={`${appBase}#plans`}>View Mentorship Plans</a><a className="ghost-button" href="https://www.youtube.com/@DelightBanking" target="_blank" rel="noreferrer">YouTube Channel</a></div></div><div className="about-photo-wrap"><img src={mentorPhotoPath} width="1280" height="1024" loading="eager" alt="Imran Sir, banking examination mentor at Delight Banking" /></div></section><section className="section about-detail-grid"><article className="premium-card"><h2>Mentor Introduction</h2><p>Students learn through a practical mentorship style focused on preparation discipline, exam-specific planning and regular performance review.</p></article><article className="premium-card"><h2>Teaching Approach</h2><p>The guidance emphasizes clear targets, consistent revision, doubt resolution and honest analysis of weak areas.</p></article><article className="premium-card"><h2>Banking-Exam Preparation Strategy</h2><p>Preparation is organized around prelims speed, mains depth, current affairs retention and exam-day decision making.</p></article><article className="premium-card"><h2>Target-Based Mentorship</h2><p>Daily and weekly targets help aspirants keep their study routine measurable and easier to correct when progress slows.</p></article><article className="premium-card"><h2>Mock-Analysis Approach</h2><p>Mock tests are reviewed for accuracy, time allocation, skipped questions, repeated mistakes and next-step correction targets.</p></article><article className="premium-card"><h2>Delight Banking Mission</h2><p>Delight Banking exists to give banking and insurance aspirants structured guidance, useful resources and plan-based mentorship without result guarantees.</p></article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+}
 function PrivacyPolicyPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
@@ -577,7 +608,7 @@ function AdminPage({ path }) {
   return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
-  return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
+  return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
 }
 
 export default function App() {
@@ -595,6 +626,7 @@ export default function App() {
   if (path === "/admin/access-denied") return <AdminAccessDeniedPage />;
   if (path.startsWith("/admin")) return <AdminPage path={path.replace(/\/$/, "") || "/admin"} />;
   if (path.endsWith("/student-desk") || url.hash.includes("student-desk")) return <StudentDeskPage />;
+  if (path.endsWith("/about")) return <AboutPage />;
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;
 }

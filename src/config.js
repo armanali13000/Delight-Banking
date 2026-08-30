@@ -2,7 +2,7 @@ import catalog from "../data/plans.json";
 
 export const appBase = import.meta.env.BASE_URL || "/";
 export const logoPath = `${appBase}delight-logo.png`;
-export const mentorPhotoPath = `${appBase}imran-sir-mentor.jpg`;
+export const mentorPhotoPath = `${appBase}images/imran-sir-banking-mentor.webp`;
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBbV7wiITBK0vCTJ9LOOXlWrmyfha1d3n4",
