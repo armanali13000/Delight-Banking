@@ -133,7 +133,7 @@ function applyPageSeo(path) {
   document.title = title;
   setCanonicalLink(canonical);
   setMetaTag("name", "description", description);
-  setMetaTag("name", "robots", isPrivateRoute ? "noindex,nofollow" : "index,follow");
+  setMetaTag("name", "robots", isPrivateRoute ? "noindex, nofollow" : "index, follow");
   setMetaTag("property", "og:site_name", "Delight Banking");
   setMetaTag("property", "og:type", "website");
   setMetaTag("property", "og:title", title);
