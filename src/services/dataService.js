@@ -1,4 +1,4 @@
-import { adminEmails, firebaseConfig, seedResources } from "../config.js";
+import { firebaseConfig, seedResources } from "../config.js";
 
 export const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => {
   return typeof value === "string" && value.trim() && !value.includes("PASTE_");
@@ -43,8 +43,8 @@ const storage = {
   }
 };
 
-function isAdminEmail(email) {
-  return Boolean(email && adminEmails.includes(email.toLowerCase()));
+function isAdminEmail() {
+  return false;
 }
 
 function removeLocalStudent(email) {
@@ -366,14 +366,14 @@ export function saveUserProfile(email, profile) {
   return profiles[email];
 }
 
-export async function getAuthToken() {
+export async function getAuthToken(forceRefresh = false) {
   const fb = await getFirebase();
   if (!fb?.auth?.currentUser) throw new Error("Login required.");
-  return fb.auth.currentUser.getIdToken();
+  return fb.auth.currentUser.getIdToken(forceRefresh);
 }
 
 async function apiFetch(path, options = {}) {
-  const token = await getAuthToken();
+  const token = await getAuthToken(Boolean(options.forceRefresh));
   const response = await fetch(path, {
     ...options,
     headers: {
@@ -414,6 +414,22 @@ export function hasResourceAccess(resource, summary) {
   return Boolean(resource.exam && activeTags.has(resource.exam));
 }
 
+export async function getAdminMe({ forceRefresh = false, logAccess = false } = {}) {
+  const suffix = logAccess ? "?logAccess=1" : "";
+  return apiFetch(`/api/admin/me${suffix}`, { forceRefresh });
+}
+
+export async function updateAdminProfile(profile) {
+  return apiFetch("/api/admin/profile", {
+    method: "PATCH",
+    body: JSON.stringify(profile),
+    forceRefresh: true
+  });
+}
+
+export async function getAdminActivityLogs(limit = 25) {
+  return apiFetch(`/api/admin/activity-logs?limit=${encodeURIComponent(limit)}`, { forceRefresh: true });
+}
 export async function createPaymentOrder(variantId, billing) {
   return apiFetch("/api/payments/create-order", {
     method: "POST",
@@ -479,6 +495,8 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
+
 
 
 

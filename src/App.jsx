@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { load } from "@cashfreepayments/cashfree-js";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
-import { adminEmails, appBase, exams, getPlanVariant, mentorPhotoPath, plans } from "./config.js";
+import { appBase, exams, getPlanVariant, mentorPhotoPath, plans } from "./config.js";
 import {
   addResource,
   createPaymentOrder,
   getActiveAccessTags,
   getActiveSubscriptions,
+  getAdminActivityLogs,
+  getAdminMe,
   getOrderStatus,
   getPaymentSummary,
   getResources,
@@ -18,7 +20,11 @@ import {
   listenToAuth,
   saveStudyTracking,
   saveUserProfile,
+  resetPassword,
+  signInWithEmail,
+  signInWithGoogle,
   signOutUser,
+  updateAdminProfile,
   verifyPayment
 } from "./services/dataService.js";
 
@@ -53,6 +59,7 @@ function routeTo(path) {
 function Header({ user, onAuth, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [verifiedAdmin, setVerifiedAdmin] = useState(null);
   const savedProfile = user?.email ? getUserProfile(user.email) : {};
   const studentName = savedProfile.name || user?.displayName || user?.email?.split("@")[0] || "Student";
 
@@ -60,6 +67,13 @@ function Header({ user, onAuth, onLogout }) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("db_theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user) { setVerifiedAdmin(null); return; }
+    getAdminMe({ forceRefresh: false }).then((result) => { if (!cancelled) setVerifiedAdmin(result.admin); }).catch(() => { if (!cancelled) setVerifiedAdmin(null); });
+    return () => { cancelled = true; };
+  }, [user]);
 
   return (
     <header className="site-header">
@@ -70,7 +84,6 @@ function Header({ user, onAuth, onLogout }) {
         <a href={`${appBase}#strategy`}>Strategy</a>
         <a href={`${appBase}#plans`}>Plans</a>
         <a href={`${appBase}student-desk`}>Student Desk</a>
-        <a href={`${appBase}admin`}>Admin</a>
       </nav>
       <div className="header-actions">
         <button className="icon-button theme-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">{theme === "dark" ? "L" : "D"}</button>
@@ -80,7 +93,7 @@ function Header({ user, onAuth, onLogout }) {
               {savedProfile.photo && <img src={savedProfile.photo} alt="" />}
               <span className="profile-initial">{studentName.slice(0, 1).toUpperCase()}</span>
             </button>
-            {profileOpen && <div className="profile-dropdown"><div className="profile-summary"><strong>{studentName}</strong><span>{user.email}</span></div><a className="menu-link" href={`${appBase}student-desk`}>Student Desk</a><button className="menu-link danger-link" type="button" onClick={onLogout}>Logout</button></div>}
+            {profileOpen && <div className="profile-dropdown"><div className="profile-summary"><strong>{studentName}</strong><span>{user.email}</span></div><a className="menu-link" href={`${appBase}student-desk`}>Student Desk</a>{verifiedAdmin && <a className="menu-link" href={`${appBase}admin`}>Admin Panel</a>}<button className="menu-link danger-link" type="button" onClick={onLogout}>Logout</button></div>}
           </div>
         ) : <><button className="ghost-button" type="button" onClick={() => onAuth("signin")}>Login</button><button className="primary-button" type="button" onClick={() => onAuth("signup")}>Start</button></>}
       </div>
@@ -276,27 +289,172 @@ function PrivacyPolicyPage() {
   return <Shell user={user} onAuth={setAuthMode}><main className="policy-page"><section className="section"><div className="section-heading"><p className="eyebrow">Privacy Policy</p><h1 className="page-title">Your data and access</h1><p>Delight Banking uses login information to manage student access, resources, and one-time mentorship subscriptions.</p></div><div className="policy-content"><article className="premium-card"><h3>Payments</h3><p>Payments are for educational mentorship and guidance services. Card, UPI and banking credentials are handled inside the secure checkout and are not stored by Delight Banking.</p></article><article className="premium-card"><h3>Access</h3><p>Access duration begins after verified payment activation. Monthly plans are one-time payments and do not renew automatically.</p></article><article className="premium-card"><h3>Results</h3><p>Examination selection, results or employment are not guaranteed.</p></article><article className="premium-card"><h3>Refund Policy</h3><p>Refund policy details must be completed and reviewed before production payments are enabled.</p></article></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 
-function AdminPage() {
-  const [user, setUser] = useState(null);
-  const [resources, setResources] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [message, setMessage] = useState("");
-  const [authMode, setAuthMode] = useState(null);
-  const isAdmin = Boolean(user?.email && adminEmails.includes(user.email.toLowerCase()));
-  useEffect(() => { listenToAuth(setUser); getResources().then(setResources); getStudents().then(setStudents); }, []);
-  async function publish(event) {
-    event.preventDefault();
-    if (!isAdmin) { setMessage("Login with an admin email first."); return; }
-    const data = new FormData(event.currentTarget);
-    await addResource({ title: data.get("title").trim(), exam: data.get("exam"), type: data.get("type"), url: data.get("url").trim(), description: data.get("description").trim(), premium: data.get("premium") === "on" });
-    event.currentTarget.reset();
-    setResources(await getResources());
-    setMessage("Resource published.");
-  }
-  const adminSummary = { subscriptions: plans.map((plan) => ({ planId: plan.planId, accessTags: plan.accessTags, status: "active", accessEndAt: "2999-01-01" })) };
-  return <Shell user={user} onAuth={setAuthMode}><main className="admin-shell"><section className="admin-hero"><p className="eyebrow">Control Room</p><h1>Manage Delight Banking resources</h1><p>Basic admin route preserved. Full admin analytics arrive in the next phase.</p><span className="status-pill">{isAdmin ? `Admin active: ${user.email}` : "Admin login required"}</span></section>{isAdmin ? <section className="admin-grid"><form className="admin-form" onSubmit={publish}><h2>Add Resource</h2><label>Title<input name="title" required /></label><label>Exam<select name="exam">{exams.map((item) => <option key={item}>{item}</option>)}</select></label><label>Type<select name="type">{["Strategy", "Study Plan", "Study Target", "Current Affairs", "PDF Resource", "Video Class"].map((item) => <option key={item}>{item}</option>)}</select></label><label>Resource Link<input name="url" type="url" /></label><label>Description<textarea name="description" rows="5" required /></label><label className="checkbox-row"><input name="premium" type="checkbox" defaultChecked /> Premium resource</label><button className="primary-button full" type="submit">Publish Resource</button>{message && <p className="form-message">{message}</p>}</form><div className="resource-panel"><div className="toolbar"><h2>Published Resources</h2></div><ResourceList resources={resources} paymentSummary={adminSummary} /></div></section> : <section className="admin-gate"><div className="gate-card"><Brand small="Admin Control" /><h1>Admin access</h1><button className="primary-button full" type="button" onClick={() => setAuthMode("signin")}>Admin Login</button></div></section>}<section className="admin-students-section"><div className="resource-toolbar"><div><p className="eyebrow">Students</p><h2>Student details</h2><p>Shows real available login/profile records. Payment analytics are stored for the next admin phase.</p></div></div><div className="students-grid">{students.map((student) => <article className="student-card" key={student.email}><h3>{student.name || "Student"}</h3><p>{student.email}</p></article>)}</div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+const adminNavItems = [
+  ["/admin", "Overview", "admin.dashboard.view"],
+  ["/admin/users", "Users", "users.view"],
+  ["/admin/subscriptions", "Subscriptions", "subscriptions.view"],
+  ["/admin/orders", "Orders", "payments.view"],
+  ["/admin/transactions", "Transactions", "payments.view"],
+  ["/admin/plans", "Plans", "plans.view"],
+  ["/admin/resources", "Resources", "resources.view"],
+  ["/admin/targets", "Targets", "resources.view"],
+  ["/admin/classes", "Classes", "resources.view"],
+  ["/admin/support", "Support", "support.view"],
+  ["/admin/refunds", "Refunds", "refunds.manage"],
+  ["/admin/disputes", "Disputes", "payments.view"],
+  ["/admin/reports", "Reports", "reports.view"],
+  ["/admin/activity-logs", "Activity Logs", "admin.activity_logs.view"],
+  ["/admin/settings", "Settings", "admins.manage"]
+];
+
+function adminHasPermission(admin, permission) {
+  return admin?.role === "super_admin" || Boolean(admin?.permissions?.includes(permission));
 }
 
+function AdminRoleBadge({ role }) {
+  return <span className={`admin-role-badge ${role || "unknown"}`}>{String(role || "unknown").replace(/_/g, " ")}</span>;
+}
+
+function AdminLoadingSkeleton() {
+  return <main className="admin-portal-page"><section className="admin-loading"><Brand small="Admin Portal" /><div className="admin-skeleton-line wide"></div><div className="admin-skeleton-line"></div><div className="admin-skeleton-grid"><span></span><span></span><span></span></div></section></main>;
+}
+
+function AdminErrorState({ message }) {
+  return <article className="admin-empty-state"><h3>Unable to load admin area</h3><p>{message}</p><button className="ghost-button" type="button" onClick={() => window.location.reload()}>Refresh session</button></article>;
+}
+
+function AdminEmptyState({ title = "Coming in Phase 2", text = "This module will be available in a later admin-panel phase." }) {
+  return <article className="admin-empty-state"><h3>{title}</h3><p>{text}</p></article>;
+}
+
+function PermissionGate({ admin, permission, children }) {
+  if (!adminHasPermission(admin, permission)) return <AdminEmptyState title="Access limited" text="This administrator role cannot access this area." />;
+  return children;
+}
+
+function ConfirmationDialog({ open, title, message, onCancel, onConfirm }) {
+  if (!open) return null;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}><section className="confirmation-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><h3>{title}</h3><p>{message}</p><div className="form-actions"><button className="ghost-button" type="button" onClick={onCancel}>Cancel</button><button className="primary-button" type="button" onClick={onConfirm}>Confirm</button></div></section></div>;
+}
+
+function AdminPageHeader({ eyebrow, title, description, admin }) {
+  return <div className="admin-page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{description && <p>{description}</p>}</div>{admin && <AdminRoleBadge role={admin.role} />}</div>;
+}
+
+function AdminSidebar({ activePath, admin, onNavigate, onClose }) {
+  return <aside className="admin-sidebar"><div className="admin-sidebar-brand"><Brand small="Admin Portal" /></div><nav>{adminNavItems.map(([path, label, permission]) => <button key={path} className={activePath === path ? "active" : ""} type="button" onClick={() => { onNavigate(path); if (onClose) onClose(); }} disabled={!adminHasPermission(admin, permission) && !["/admin/users", "/admin/subscriptions", "/admin/orders", "/admin/transactions", "/admin/plans", "/admin/resources", "/admin/targets", "/admin/classes", "/admin/support", "/admin/refunds", "/admin/disputes", "/admin/reports", "/admin/settings"].includes(path)}>{label}</button>)}</nav></aside>;
+}
+
+function AdminProfileMenu({ admin, onLogout }) {
+  const [open, setOpen] = useState(false);
+  return <div className="admin-profile-menu"><button className="admin-profile-trigger" type="button" onClick={() => setOpen(!open)}><span>{admin.displayName?.slice(0, 1).toUpperCase() || "A"}</span><div><strong>{admin.displayName}</strong><small>{admin.role.replace(/_/g, " ")}</small></div></button>{open && <div className="admin-profile-popover"><a href={`${appBase}admin/profile`}>Admin Profile</a><button type="button" onClick={onLogout}>Sign out</button></div>}</div>;
+}
+
+function AdminHeader({ admin, onMenu, onLogout }) {
+  return <header className="admin-header"><button className="icon-button admin-menu-button" type="button" onClick={onMenu} aria-label="Open admin navigation">M</button><div><strong>Delight Banking Admin</strong><span>Secure session active</span></div><AdminProfileMenu admin={admin} onLogout={onLogout} /></header>;
+}
+
+function AdminMobileNavigation({ open, activePath, admin, onNavigate, onClose }) {
+  useEffect(() => { document.body.classList.toggle("admin-drawer-open", open); return () => document.body.classList.remove("admin-drawer-open"); }, [open]);
+  if (!open) return null;
+  return <div className="admin-mobile-backdrop" role="presentation" onMouseDown={onClose}><div className="admin-mobile-drawer" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close admin navigation">x</button><AdminSidebar activePath={activePath} admin={admin} onNavigate={onNavigate} onClose={onClose} /></div></div>;
+}
+
+function AdminLayout({ admin, activePath, children }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`); }
+  function navigate(path) { routeTo(`${appBase}${path.replace(/^\//, "")}`); }
+  return <main className="admin-portal-page"><AdminMobileNavigation open={mobileOpen} activePath={activePath} admin={admin} onNavigate={navigate} onClose={() => setMobileOpen(false)} /><div className="admin-portal-shell"><AdminSidebar activePath={activePath} admin={admin} onNavigate={navigate} /><section className="admin-main"><AdminHeader admin={admin} onMenu={() => setMobileOpen(true)} onLogout={logout} />{children}</section></div></main>;
+}
+
+function AdminRouteGuard({ path, children }) {
+  const [state, setState] = useState({ loading: true, admin: null, error: "" });
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const result = await getAdminMe({ forceRefresh: true, logAccess: path === "/admin" });
+        if (!cancelled) setState({ loading: false, admin: result.admin, error: "" });
+      } catch (error) {
+        if (cancelled) return;
+        if (error.message === "Login required.") routeTo(`${appBase}admin/login`);
+        else routeTo(`${appBase}admin/access-denied`);
+      }
+    }
+    check();
+    return () => { cancelled = true; };
+  }, [path]);
+  if (state.loading) return <AdminLoadingSkeleton />;
+  if (state.error) return <AdminErrorState message={state.error} />;
+  return children(state.admin);
+}
+
+function AdminLoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  async function finishLogin(action) {
+    setLoading(true);
+    setMessage("");
+    try {
+      await action();
+      await getAdminMe({ forceRefresh: true, logAccess: true });
+      routeTo(`${appBase}admin`);
+    } catch (error) {
+      await signOutUser().catch(() => {});
+      setMessage(error.message === "Login required." ? "This account does not have administrative access." : error.message || "This account does not have administrative access.");
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function forgotPassword() {
+    setMessage("");
+    try { await resetPassword(email.trim()); setMessage("Password reset link sent if the email exists."); } catch (error) { setMessage(error.message); }
+  }
+  return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Secure Administration</p><h1>Delight Banking Admin</h1><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label><label>Password<div className="password-row"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "Hide" : "Show"}</button></div></label><button className="primary-button full" type="button" disabled={loading} onClick={() => finishLogin(() => signInWithEmail(email.trim(), password, "signin"))}>{loading ? "Checking access..." : "Login"}</button><button className="google-button full" type="button" disabled={loading} onClick={() => finishLogin(signInWithGoogle)}><span>G</span>Continue with Google</button><div className="auth-links"><button className="text-button" type="button" onClick={forgotPassword}>Forgot password?</button><a className="text-button" href={appBase}>Back to website</a></div>{message && <p className="form-message">{message === "This account does not have administrative access." ? message : "This account does not have administrative access."}</p>}</section></main>;
+}
+
+function AdminOverview({ admin }) {
+  const roadmap = ["Secure roles and profile foundation", "Phase 2 analytics and operational modules", "Future role management and audit workflows"];
+  return <><AdminPageHeader eyebrow="Overview" title={`Welcome, ${admin.displayName}`} description="The admin foundation is active. Analytics and operations modules will be added in later phases." admin={admin} /><div className="admin-foundation-grid"><article><span>Account status</span><strong>{admin.status}</strong></article><article><span>Secure session</span><strong>Verified</strong></article><article><span>Profile</span><a className="ghost-button" href={`${appBase}admin/profile`}>Open profile</a></article></div><section className="admin-card"><h2>Phase roadmap</h2>{roadmap.map((item) => <p key={item}>{item}</p>)}</section><section className="admin-card"><h2>Security notice</h2><p>Admin access is verified with Firebase custom claims and the server-side adminUsers record. Protected content is not rendered until authorization completes.</p></section><div className="admin-placeholder-grid"><AdminEmptyState title="Analytics" /><AdminEmptyState title="Users" /><AdminEmptyState title="Payments" /></div></>;
+}
+
+function AdminProfilePage({ admin, onUpdated }) {
+  const [displayName, setDisplayName] = useState(admin.displayName || "");
+  const [photoURL, setPhotoURL] = useState(admin.photoURL || "");
+  const [message, setMessage] = useState("");
+  async function save(event) {
+    event.preventDefault();
+    setMessage("");
+    try { const result = await updateAdminProfile({ displayName, photoURL }); onUpdated?.(result.admin); setMessage("Profile updated."); } catch (error) { setMessage(error.message); }
+  }
+  async function refreshSession() { await getAdminMe({ forceRefresh: true }); setMessage("Session refreshed."); }
+  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`); }
+  return <><AdminPageHeader eyebrow="Admin Profile" title="Profile and session" description="Manage safe profile details. Role, status, permissions and UID are controlled by secure admin processes." admin={admin} /><section className="admin-profile-card"><div className="admin-photo-preview">{photoURL ? <img src={photoURL} alt="" /> : <span>{displayName.slice(0, 1).toUpperCase()}</span>}</div><dl className="student-details"><div><dt>Display name</dt><dd>{admin.displayName}</dd></div><div><dt>Email</dt><dd>{admin.email}</dd></div><div><dt>Firebase UID</dt><dd>{admin.uid}</dd></div><div><dt>Role</dt><dd>{admin.role}</dd></div><div><dt>Status</dt><dd>{admin.status}</dd></div><div><dt>Created</dt><dd>{formatDate(admin.createdAt)}</dd></div><div><dt>Last admin access</dt><dd>{formatDate(admin.lastAdminAccessAt)}</dd></div></dl><form className="profile-edit-panel" onSubmit={save}><label>Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Profile photograph URL<input value={photoURL} onChange={(event) => setPhotoURL(event.target.value)} placeholder="https://..." /></label><div className="form-actions"><button className="primary-button" type="submit">Save Profile</button><button className="ghost-button" type="button" onClick={refreshSession}>Refresh session</button><a className="ghost-button" href={`${appBase}admin`}>Return to admin dashboard</a><button className="text-button" type="button" onClick={logout}>Sign out</button></div>{message && <p className="form-message">{message}</p>}</form></section></>;
+}
+
+function AdminActivityLogsPage({ admin }) {
+  const [logs, setLogs] = useState([]);
+  const [message, setMessage] = useState("Loading activity logs...");
+  useEffect(() => { getAdminActivityLogs(25).then((result) => { setLogs(result.logs || []); setMessage(""); }).catch((error) => setMessage(error.message)); }, []);
+  return <PermissionGate admin={admin} permission="admin.activity_logs.view"><AdminPageHeader eyebrow="Activity Logs" title="Activity-log foundation" description="Basic recent administrative activity. Filters arrive in a later admin-panel phase." admin={admin} />{message && <AdminEmptyState title="Activity logs" text={message} />}<section className="admin-card admin-log-list">{logs.length ? logs.map((log) => <article key={log.id}><strong>{log.action}</strong><span>{log.adminEmail} | {log.adminRole} | {formatDate(log.createdAt)}</span><p>{log.entityType}: {log.entityId}</p></article>) : !message && <AdminEmptyState title="No activity yet" text="Administrative actions will appear here as the panel grows." />}</section></PermissionGate>;
+}
+
+function AdminModulePlaceholder({ admin, title }) {
+  return <><AdminPageHeader eyebrow="Admin Module" title={title} description="This module will be available in a later admin-panel phase." admin={admin} /><AdminEmptyState /></>;
+}
+
+function AdminAccessDeniedPage() {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`); }
+  return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Access denied</p><h1>Access denied</h1><p>Administrative authorization is required to open this area.</p><div className="form-actions"><a className="primary-button" href={`${appBase}student-desk`}>Return to student dashboard</a><a className="ghost-button" href={appBase}>Return to website</a><button className="text-button" type="button" onClick={() => setConfirmOpen(true)}>Sign out</button></div></section><ConfirmationDialog open={confirmOpen} title="Sign out?" message="This will end the current session on this device." onCancel={() => setConfirmOpen(false)} onConfirm={logout} /></main>;
+}
+
+function AdminPage({ path }) {
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
+}
 function Footer() {
   return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightbanking.com">support@delightbanking.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
 }
@@ -311,11 +469,20 @@ export default function App() {
   void route;
   if (checkoutMatch) return <CheckoutPage variantId={decodeURIComponent(checkoutMatch[1])} />;
   if (paymentMatch) return <PaymentStatusPage orderId={url.searchParams.get("order_id") || url.searchParams.get("orderId")} />;
-  if (path.endsWith("/admin") || url.hash === "#admin") return <AdminPage />;
+  if (path === "/admin/login") return <AdminLoginPage />;
+  if (path === "/admin/access-denied") return <AdminAccessDeniedPage />;
+  if (path.startsWith("/admin")) return <AdminPage path={path.replace(/\/$/, "") || "/admin"} />;
   if (path.endsWith("/student-desk") || url.hash.includes("student-desk")) return <StudentDeskPage />;
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;
 }
+
+
+
+
+
+
+
 
 
 

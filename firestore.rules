@@ -44,7 +44,15 @@ service cloud.firestore {
     match /webhookEvents/{eventId} {
       allow read, write: if false;
     }
+    match /adminUsers/{adminUid} {
+      allow read, write: if false;
+    }
+
+    match /adminActivityLogs/{logId} {
+      allow read, write: if false;
+    }
   }
 }
+
 
 

@@ -15,7 +15,6 @@ export const firebaseConfig = {
 };
 
 
-export const adminEmails = ["darkdevil7325@gmail.com"];
 export const exams = ["SBI PO", "SBI Clerk", "IBPS PO", "IBPS Clerk", "RRB PO", "RRB Clerk"];
 export const plans = catalog.plans;
 export const planVariants = plans.flatMap((plan) => plan.variants.map((variant) => ({ ...variant, plan })));
@@ -56,4 +55,5 @@ export const seedResources = [
     description: "A free preview explaining score review, error logs, and next-day correction targets."
   }
 ];
+
 

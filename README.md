@@ -89,3 +89,64 @@ After a student returns from checkout, the app calls a secure backend verificati
 
 After sandbox testing passes, set `CASHFREE_ENVIRONMENT=production`, replace the Cashfree client ID/secret with production credentials, keep `APP_BASE_URL=https://www.delightguidance.com`, and redeploy from Vercel.
 
+
+## Admin Panel Phase 1
+
+Phase 1 adds the secure admin foundation without changing public website, student dashboard or Cashfree checkout behavior.
+
+Implemented roles:
+
+```text
+super_admin
+admin
+support
+content_manager
+```
+
+Primary authorization uses Firebase custom claims plus the Firestore `adminUsers/{firebaseUid}` record. The required custom claims are:
+
+```json
+{ "admin": true, "adminRole": "super_admin" }
+```
+
+Admin Firestore collections:
+
+```text
+adminUsers
+adminActivityLogs
+```
+
+Admin API routes:
+
+```text
+GET /api/admin/me
+PATCH /api/admin/profile
+GET /api/admin/activity-logs
+```
+
+First super-admin bootstrap:
+
+```bash
+BOOTSTRAP_ADMIN_UID=the_firebase_uid CONFIRM_BOOTSTRAP_SUPER_ADMIN=yes npm run admin:bootstrap
+```
+
+The bootstrap script is local/admin-only. It does not create public credentials, does not accept arbitrary roles, and never prints secrets. After running it, sign out and sign in again so Firebase issues a fresh ID token with the new custom claims.
+
+Admin login:
+
+```text
+/admin/login
+```
+
+Protected Phase 1 admin routes:
+
+```text
+/admin
+/admin/profile
+/admin/activity-logs
+/admin/access-denied
+```
+
+Firestore rules block browser reads/writes to `adminUsers` and `adminActivityLogs`; trusted changes go through Firebase Admin server APIs. Phase 2 will add real analytics, user management, subscriptions, payments, plans, reports and operational workflows.
+
+Cashfree regression note: payment routes and environment variable names were not changed in this admin phase. Re-test sandbox checkout and webhook after Vercel deploy.
