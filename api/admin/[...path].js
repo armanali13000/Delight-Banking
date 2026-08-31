@@ -24,8 +24,11 @@ import {
 } from "../_lib/adminOperations.js";
 
 function parts(req) {
-  const value = req.query?.path || [];
-  return (Array.isArray(value) ? value : [value]).map((item) => decodeURIComponent(String(item || ""))).filter(Boolean);
+  const value = req.query?.path || req.query?.["...path"] || [];
+  const queryParts = (Array.isArray(value) ? value : [value]).map((item) => decodeURIComponent(String(item || ""))).filter(Boolean);
+  if (queryParts.length) return queryParts;
+  const pathname = String(req.url || "").split("?")[0].replace(/^\/api\/admin\/?/, "");
+  return pathname.split("/").map((item) => decodeURIComponent(item)).filter(Boolean);
 }
 
 function sendCsv(res, report) {
