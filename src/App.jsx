@@ -6,6 +6,8 @@ import { appBase, exams, getPlanVariant, mentorPhotoPath, plans } from "./config
 import {
   addResource,
   createPaymentOrder,
+  getAdministrator,
+  getAdministrators,
   getActiveAccessTags,
   getActiveSubscriptions,
   getAdminActivityLogs,
@@ -18,6 +20,10 @@ import {
   getUserProfile,
   hasResourceAccess,
   listenToAuth,
+  promoteAdministrator,
+  reauthenticateCurrentUser,
+  reactivateAdministrator,
+  revokeAdministrator,
   saveStudyTracking,
   saveUserProfile,
   resetPassword,
@@ -25,6 +31,8 @@ import {
   signInWithGoogle,
   signOutUser,
   updateAdminProfile,
+  updateAdministratorRole,
+  suspendAdministrator,
   verifyPayment
 } from "./services/dataService.js";
 
@@ -451,6 +459,7 @@ function PrivacyPolicyPage() {
 const adminNavItems = [
   ["/admin", "Overview", "admin.dashboard.view"],
   ["/admin/users", "Users", "users.view"],
+  ["/admin/administrators", "Administrators", "admins.manage"],
   ["/admin/subscriptions", "Subscriptions", "subscriptions.view"],
   ["/admin/orders", "Orders", "payments.view"],
   ["/admin/transactions", "Transactions", "payments.view"],
@@ -601,6 +610,140 @@ function AdminActivityLogsPage({ admin }) {
   return <PermissionGate admin={admin} permission="admin.activity_logs.view"><AdminPageHeader eyebrow="Activity Logs" title="Activity-log foundation" description="Basic recent administrative activity. Filters arrive in a later admin-panel phase." admin={admin} />{message && <AdminEmptyState title="Activity logs" text={message} />}<section className="admin-card admin-log-list">{logs.length ? logs.map((log) => <article key={log.id}><strong>{log.action}</strong><span>{log.adminEmail} | {log.adminRole} | {formatDate(log.createdAt)}</span><p>{log.entityType}: {log.entityId}</p></article>) : !message && <AdminEmptyState title="No activity yet" text="Administrative actions will appear here as the panel grows." />}</section></PermissionGate>;
 }
 
+const limitedAdminRoles = ["admin", "support", "content_manager"];
+const roleLabels = { super_admin: "Super Admin", admin: "Admin", support: "Support", content_manager: "Content Manager" };
+const statusLabels = { active: "Active", suspended: "Suspended", revoked: "Revoked" };
+
+function roleLabel(role) {
+  return roleLabels[role] || String(role || "Unknown");
+}
+
+function statusLabel(status) {
+  return statusLabels[status] || String(status || "Unknown");
+}
+
+function AddAdministratorDialog({ open, onClose, onAdded }) {
+  const [step, setStep] = useState(1);
+  const [email, setEmail] = useState("");
+  const [candidate, setCandidate] = useState(null);
+  const [role, setRole] = useState("admin");
+  const [confirmation, setConfirmation] = useState("");
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [needsReauth, setNeedsReauth] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  useEffect(() => { if (!open) { setStep(1); setEmail(""); setCandidate(null); setRole("admin"); setConfirmation(""); setReauthPassword(""); setNeedsReauth(false); setMessage(""); } }, [open]);
+  if (!open) return null;
+  async function findCandidate(event) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    try { const result = await searchAdminCandidate(email.trim()); setCandidate(result.user); setStep(2); }
+    catch (error) { setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+  async function submitPromotion() {
+    setLoading(true);
+    setMessage("");
+    try { const result = await promoteAdministrator({ email: candidate.email, role, confirmation }); setMessage(result.message); onAdded?.(result.administrator); }
+    catch (error) { setNeedsReauth(error.message.includes("sign in again")); setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+  async function refreshAdminSession() {
+    setLoading(true);
+    setMessage("");
+    try {
+      await reauthenticateCurrentUser(reauthPassword);
+      setNeedsReauth(false);
+      setReauthPassword("");
+      setMessage("Session refreshed. Grant access again.");
+    } catch (error) { setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+  const permissions = candidate ? limitedAdminRoles.includes(role) ? role === "admin" ? ["users.view", "users.manage", "subscriptions.view", "subscriptions.manage", "payments.view", "plans.view", "resources.manage", "support.manage", "reports.view"] : role === "support" ? ["users.view", "subscriptions.view", "payments.view_limited", "support.manage"] : ["plans.view", "resources.manage", "targets.manage", "classes.manage"] : [] : [];
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="admin-management-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close dialog">x</button><p className="eyebrow">Add Administrator</p><h2>Promote an existing verified user</h2>{step === 1 && <form onSubmit={findCandidate} className="admin-dialog-step"><label>Exact verified email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@example.com" required /></label><button className="primary-button" disabled={loading} type="submit">Find Account</button></form>}{step >= 2 && candidate && <div className="admin-dialog-step"><dl className="student-details"><div><dt>Name</dt><dd>{candidate.displayName}</dd></div><div><dt>Email</dt><dd>{candidate.email}</dd></div><div><dt>Verified</dt><dd>{candidate.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Provider</dt><dd>{candidate.provider}</dd></div><div><dt>Created</dt><dd>{formatDate(candidate.createdAt)}</dd></div><div><dt>Admin status</dt><dd>{candidate.adminStatus || "Not administrator"}</dd></div></dl>{step === 2 && <button className="primary-button" type="button" onClick={() => setStep(3)}>Continue</button>}</div>}{step >= 3 && candidate && <div className="admin-dialog-step"><label>Limited administrator role<select value={role} onChange={(event) => setRole(event.target.value)}>{limitedAdminRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>{step === 3 && <button className="primary-button" type="button" onClick={() => setStep(4)}>Review Permissions</button>}</div>}{step >= 4 && <div className="admin-dialog-step"><h3>Permissions</h3><div className="permission-list">{permissions.map((permission) => <span key={permission}>{permission}</span>)}</div>{step === 4 && <button className="primary-button" type="button" onClick={() => setStep(5)}>Continue to Confirm</button>}</div>}{step === 5 && <div className="admin-dialog-step"><label>Type ADD ADMIN to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>{needsReauth && <div className="admin-reauth-box"><label>Password for email admins<input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} placeholder="Google admins can leave this blank" /></label><button className="ghost-button" type="button" disabled={loading} onClick={refreshAdminSession}>Refresh Session</button></div>}<button className="primary-button" type="button" disabled={loading || confirmation !== "ADD ADMIN"} onClick={submitPromotion}>Grant Access</button></div>}{message && <p className="form-message">{message}</p>}</section></div>;
+}
+
+function AdminActionDialog({ action, adminUser, onCancel, onDone }) {
+  const [role, setRole] = useState(adminUser?.role === "admin" ? "support" : "admin");
+  const [reason, setReason] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [needsReauth, setNeedsReauth] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!adminUser || !action) return;
+    setRole(adminUser.role === "admin" ? "support" : "admin");
+    setReason("");
+    setConfirmation("");
+    setReauthPassword("");
+    setNeedsReauth(false);
+    setMessage("");
+  }, [adminUser?.uid, action]);
+  if (!action || !adminUser) return null;
+  const isRole = action === "role";
+  const isRevoke = action === "revoke";
+  const title = isRole ? "Change administrator role" : action === "suspend" ? "Suspend administrator" : action === "reactivate" ? "Reactivate administrator" : "Revoke administrator access";
+  async function submit() {
+    setLoading(true);
+    setMessage("");
+    try {
+      const payload = { reason, confirmation };
+      const result = isRole ? await updateAdministratorRole(adminUser.uid, { role, reason }) : action === "suspend" ? await suspendAdministrator(adminUser.uid, payload) : action === "reactivate" ? await reactivateAdministrator(adminUser.uid, { reason }) : await revokeAdministrator(adminUser.uid, payload);
+      setMessage(result.message);
+      onDone?.(result.administrator);
+    } catch (error) { setNeedsReauth(error.message.includes("sign in again")); setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+  async function refreshAdminSession() {
+    setLoading(true);
+    setMessage("");
+    try {
+      await reauthenticateCurrentUser(reauthPassword);
+      setNeedsReauth(false);
+      setReauthPassword("");
+      setMessage("Session refreshed. Confirm the action again.");
+    } catch (error) { setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}><section className="confirmation-dialog admin-management-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><h3>{title}</h3><p>{adminUser.email}</p>{isRole && <><label>New limited role<select value={role} onChange={(event) => setRole(event.target.value)}>{limitedAdminRoles.filter((item) => item !== adminUser.role).map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label><div className="permission-list"><span>Current: {roleLabel(adminUser.role)}</span><span>New: {roleLabel(role)}</span></div></>}<label>Reason<textarea rows="3" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required for audit logs" /></label>{isRevoke && <label>Type REVOKE ADMIN<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>}{needsReauth && <div className="admin-reauth-box"><label>Password for email admins<input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} placeholder="Google admins can leave this blank" /></label><button className="ghost-button" type="button" disabled={loading} onClick={refreshAdminSession}>Refresh Session</button></div>}<div className="form-actions"><button className="ghost-button" type="button" onClick={onCancel}>Cancel</button><button className={isRevoke || action === "suspend" ? "primary-button danger-action" : "primary-button"} type="button" disabled={loading || reason.trim().length < 3 || (isRevoke && confirmation !== "REVOKE ADMIN")} onClick={submit}>Confirm</button></div>{message && <p className="form-message">{message}</p>}</section></div>;
+}
+
+function AdministratorsTable({ administrators, currentAdmin, onOpen, onAction }) {
+  return <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Created by</th><th>Last access</th><th>Provider</th><th>Actions</th></tr></thead><tbody>{administrators.map((item) => <tr key={item.uid}><td>{item.displayName}</td><td>{item.email}</td><td><span className={`admin-role-badge ${item.role}`}>{roleLabel(item.role)}</span></td><td><span className={`admin-status-badge ${item.status}`}>{statusLabel(item.status)}</span></td><td>{formatDate(item.createdAt)}</td><td>{item.createdByEmail || "Bootstrap"}</td><td>{formatDate(item.lastAdminAccessAt)}</td><td>{item.provider}</td><td><div className="admin-row-actions"><button className="text-button" type="button" onClick={() => onOpen(item.uid)}>Open</button>{item.uid !== currentAdmin.uid && item.role !== "super_admin" && item.status === "active" && <button className="text-button" type="button" onClick={() => onAction("role", item)}>Role</button>}{item.uid !== currentAdmin.uid && item.status === "active" && <button className="text-button danger-link" type="button" onClick={() => onAction("suspend", item)}>Suspend</button>}{item.status === "suspended" && <button className="text-button" type="button" onClick={() => onAction("reactivate", item)}>Reactivate</button>}{item.uid !== currentAdmin.uid && item.status !== "revoked" && <button className="text-button danger-link" type="button" onClick={() => onAction("revoke", item)}>Revoke</button>}</div></td></tr>)}</tbody></table><div className="admin-mobile-list">{administrators.map((item) => <article className="admin-mobile-card" key={item.uid}><header><div><strong>{item.displayName}</strong><span>{item.email}</span></div><span className={`admin-status-badge ${item.status}`}>{statusLabel(item.status)}</span></header><p>{roleLabel(item.role)} | {item.provider} | Created {formatDate(item.createdAt)}</p><div className="admin-row-actions"><button className="ghost-button" type="button" onClick={() => onOpen(item.uid)}>Open</button>{item.uid !== currentAdmin.uid && item.role !== "super_admin" && item.status === "active" && <button className="ghost-button" type="button" onClick={() => onAction("role", item)}>Role</button>}{item.uid !== currentAdmin.uid && item.status === "active" && <button className="ghost-button" type="button" onClick={() => onAction("suspend", item)}>Suspend</button>}{item.status === "suspended" && <button className="ghost-button" type="button" onClick={() => onAction("reactivate", item)}>Reactivate</button>}{item.uid !== currentAdmin.uid && item.status !== "revoked" && <button className="ghost-button" type="button" onClick={() => onAction("revoke", item)}>Revoke</button>}</div></article>)}</div></div>;
+}
+
+function AdminAdministratorsPage({ admin }) {
+  const [items, setItems] = useState([]);
+  const [message, setMessage] = useState("Loading administrators...");
+  const [query, setQuery] = useState("");
+  const [role, setRole] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const [addOpen, setAddOpen] = useState(false);
+  const [action, setAction] = useState(null);
+  const pageSize = 10;
+  async function loadAdmins() { setMessage("Loading administrators..."); try { const result = await getAdministrators(); setItems(result.administrators || []); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { loadAdmins(); }, []);
+  const filtered = items.filter((item) => { const text = `${item.displayName} ${item.email}`.toLowerCase(); return text.includes(query.toLowerCase()) && (role === "all" || item.role === role) && (status === "all" || item.status === status); });
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
+  function openDetail(uid) { routeTo(`${appBase}admin/administrators/${uid}`); }
+  function replaceItem(next) { if (!next) return loadAdmins(); setItems((current) => current.map((item) => item.uid === next.uid ? next : item)); }
+  return <PermissionGate admin={admin} permission="admins.manage"><AdminPageHeader eyebrow="Security" title="Administrators" description="Manage limited administrative access for existing verified Delight Banking users only." admin={admin} /><section className="admin-card admin-management-toolbar"><div className="admin-filter-grid"><label>Search<input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Name or email" /></label><label>Role<select value={role} onChange={(event) => { setRole(event.target.value); setPage(1); }}><option value="all">All roles</option><option value="super_admin">Super Admin</option>{limitedAdminRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label><label>Status<select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="revoked">Revoked</option></select></label></div><button className="primary-button" type="button" onClick={() => setAddOpen(true)}>Add Administrator</button></section>{message ? <AdminEmptyState title="Administrators" text={message} /> : visible.length ? <AdministratorsTable administrators={visible} currentAdmin={admin} onOpen={openDetail} onAction={(nextAction, item) => setAction({ action: nextAction, item })} /> : <AdminEmptyState title="No administrators found" text="No administrator records match the current filters." />}<div className="admin-pagination"><button className="ghost-button" type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page} of {pages}</span><button className="ghost-button" type="button" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button></div><AddAdministratorDialog open={addOpen} onClose={() => setAddOpen(false)} onAdded={(item) => { replaceItem(item); setAddOpen(false); }} /><AdminActionDialog action={action?.action} adminUser={action?.item} onCancel={() => setAction(null)} onDone={(item) => { replaceItem(item); setAction(null); }} /></PermissionGate>;
+}
+
+function AdminAdministratorDetailPage({ admin, uid }) {
+  const [detail, setDetail] = useState(null);
+  const [message, setMessage] = useState("Loading administrator...");
+  const [action, setAction] = useState(null);
+  async function loadDetail() { setMessage("Loading administrator..."); try { const result = await getAdministrator(uid); setDetail(result); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { loadDetail(); }, [uid]);
+  const item = detail?.administrator;
+  function applyUpdate(next) { setDetail((current) => ({ ...(current || {}), administrator: next, activity: current?.activity || [] })); }
+  return <PermissionGate admin={admin} permission="admins.manage"><AdminPageHeader eyebrow="Administrator" title="Administrator details" description="Review profile, access status, permissions and recent safe activity." admin={admin} />{message ? <AdminEmptyState title="Administrator details" text={message} /> : item && <><section className="admin-profile-card"><div className="admin-detail-heading"><div><h2>{item.displayName}</h2><p>{item.email}</p></div><span className={`admin-status-badge ${item.status}`}>{statusLabel(item.status)}</span></div><dl className="student-details"><div><dt>UID</dt><dd>{item.uid}</dd></div><div><dt>Role</dt><dd>{roleLabel(item.role)}</dd></div><div><dt>Provider</dt><dd>{item.provider}</dd></div><div><dt>Email verified</dt><dd>{item.emailVerified === null ? "Not available" : item.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Created by</dt><dd>{item.createdByEmail || "Bootstrap"}</dd></div><div><dt>Created</dt><dd>{formatDate(item.createdAt)}</dd></div><div><dt>Last access</dt><dd>{formatDate(item.lastAdminAccessAt)}</dd></div><div><dt>Updated</dt><dd>{formatDate(item.updatedAt)}</dd></div><div><dt>Suspension</dt><dd>{item.suspensionReason || "None"}</dd></div><div><dt>Revocation</dt><dd>{item.revocationReason || "None"}</dd></div></dl><div className="permission-list">{item.permissions.map((permission) => <span key={permission}>{permission}</span>)}</div><div className="form-actions">{item.uid !== admin.uid && item.role !== "super_admin" && item.status === "active" && <button className="ghost-button" type="button" onClick={() => setAction("role")}>Change Role</button>}{item.uid !== admin.uid && item.status === "active" && <button className="ghost-button" type="button" onClick={() => setAction("suspend")}>Suspend</button>}{item.status === "suspended" && <button className="ghost-button" type="button" onClick={() => setAction("reactivate")}>Reactivate</button>}{item.uid !== admin.uid && item.status !== "revoked" && <button className="primary-button danger-action" type="button" onClick={() => setAction("revoke")}>Revoke Access</button>}<a className="ghost-button" href={`${appBase}admin/administrators`}>Back</a></div></section><section className="admin-card admin-log-list"><h2>Recent safe activity</h2>{detail.activity?.length ? detail.activity.map((log) => <article key={log.id}><strong>{log.action}</strong><span>{formatDate(log.createdAt)}</span><p>{log.reason || log.safeMetadata?.reason || "No reason recorded."}</p></article>) : <AdminEmptyState title="No activity" text="No administrator-management activity has been recorded for this account yet." />}</section><AdminActionDialog action={action} adminUser={item} onCancel={() => setAction(null)} onDone={(next) => { applyUpdate(next); setAction(null); loadDetail(); }} /></>}</PermissionGate>;
+}
 function AdminModulePlaceholder({ admin, title }) {
   return <><AdminPageHeader eyebrow="Admin Module" title={title} description="This module will be available in a later admin-panel phase." admin={admin} /><AdminEmptyState /></>;
 }
@@ -612,7 +755,8 @@ function AdminAccessDeniedPage() {
 }
 
 function AdminPage({ path }) {
-  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
+  const administratorDetailMatch = path.match(/^\/admin\/administrators\/([^/]+)$/);
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={administratorDetailMatch ? "/admin/administrators" : path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
   return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;

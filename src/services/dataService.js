@@ -126,6 +126,25 @@ export async function signOutUser() {
   await fb.authModule.signOut(fb.auth);
 }
 
+export async function reauthenticateCurrentUser(password = "") {
+  const fb = await getFirebase();
+  const user = fb?.auth?.currentUser;
+  if (!user) throw new Error("Login required.");
+
+  const providerIds = user.providerData.map((provider) => provider.providerId);
+  if (providerIds.includes("google.com")) {
+    const provider = new fb.authModule.GoogleAuthProvider();
+    await fb.authModule.reauthenticateWithPopup(user, provider);
+  } else {
+    if (!user.email || !password) throw new Error("Enter your password to reauthenticate.");
+    const credential = fb.authModule.EmailAuthProvider.credential(user.email, password);
+    await fb.authModule.reauthenticateWithCredential(user, credential);
+  }
+
+  await user.getIdToken(true);
+  return true;
+}
+
 export async function getResources() {
   const fb = await getFirebase();
   if (!fb) return storage.get("db_resources", seedResources);
@@ -429,6 +448,58 @@ export async function updateAdminProfile(profile) {
 
 export async function getAdminActivityLogs(limit = 25) {
   return apiFetch(`/api/admin/activity-logs?limit=${encodeURIComponent(limit)}`, { forceRefresh: true });
+}
+
+export async function getAdministrators() {
+  return apiFetch("/api/admin/administrators", { forceRefresh: true });
+}
+
+export async function getAdministrator(uid) {
+  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}`, { forceRefresh: true });
+}
+
+export async function searchAdminCandidate(email) {
+  return apiFetch(`/api/admin/users/search?email=${encodeURIComponent(email)}`, { forceRefresh: true });
+}
+
+export async function promoteAdministrator(payload) {
+  return apiFetch("/api/admin/administrators/promote", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    forceRefresh: true
+  });
+}
+
+export async function updateAdministratorRole(uid, payload) {
+  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+    forceRefresh: true
+  });
+}
+
+export async function suspendAdministrator(uid, payload) {
+  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}/suspend`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    forceRefresh: true
+  });
+}
+
+export async function reactivateAdministrator(uid, payload = {}) {
+  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}/reactivate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    forceRefresh: true
+  });
+}
+
+export async function revokeAdministrator(uid, payload) {
+  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}/revoke`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    forceRefresh: true
+  });
 }
 export async function createPaymentOrder(variantId, billing) {
   return apiFetch("/api/payments/create-order", {
