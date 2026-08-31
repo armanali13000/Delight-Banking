@@ -14,10 +14,20 @@ export function method(req, res, allowed) {
 }
 
 export async function readJson(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  try {
+    if (req.body && typeof req.body === "object") return req.body;
+    if (typeof req.body === "string" && req.body.trim()) return JSON.parse(req.body);
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (!chunks.length) return {};
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (cause) {
+    const error = new Error("Malformed JSON request body.");
+    error.statusCode = 400;
+    error.code = "MALFORMED_JSON";
+    error.cause = cause;
+    throw error;
+  }
 }
 
 export async function readRawBody(req) {
@@ -29,7 +39,7 @@ export async function readRawBody(req) {
 export function handleError(res, error) {
   const status = error.statusCode || 500;
   const message = error.safeMessage || (status >= 500 ? "Server could not complete the request." : error.message);
-  if (status >= 500) console.error(error);
-  sendJson(res, status, { error: message });
+  const code = error.code || error.safeCode || (status >= 500 ? "SERVER_CONFIGURATION_OR_FIREBASE_ERROR" : "REQUEST_FAILED");
+  if (status >= 500) console.error("API request failed", { status, code, message });
+  sendJson(res, status, { error: message, code, status });
 }
-

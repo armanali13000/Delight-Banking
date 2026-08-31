@@ -10,10 +10,11 @@ function appAuth() {
   return getAuth(getAdminApp());
 }
 
-function adminError(statusCode, message, safeMessage = message) {
+function adminError(statusCode, message, safeMessage = message, code = "") {
   const error = new Error(message);
   error.statusCode = statusCode;
   error.safeMessage = safeMessage;
+  if (code) error.code = code;
   return error;
 }
 
@@ -83,7 +84,7 @@ export async function requireRecentSuperAdmin(req) {
   const authTime = Number(decoded.auth_time || 0);
   const age = Math.floor(Date.now() / 1000) - authTime;
   if (!authTime || age > RECENT_AUTH_SECONDS) {
-    throw adminError(401, "Recent super-admin authentication is required.", "Please sign in again before performing this administrator-management action.");
+    throw adminError(403, "Recent super-admin authentication is required.", "Recent authentication is required.", "RECENT_LOGIN_REQUIRED");
   }
   return admin;
 }
@@ -91,7 +92,7 @@ export async function requireRecentSuperAdmin(req) {
 export function validateLimitedRole(role) {
   const value = cleanText(role, 40);
   if (!isLimitedAdminRole(value)) {
-    throw adminError(400, "Choose Admin, Support, or Content Manager. Super Admin cannot be assigned here.");
+    throw adminError(400, "Choose Admin, Support, or Content Manager. Super Admin cannot be assigned here.", "Choose Admin, Support, or Content Manager. Super Admin cannot be assigned here.", "INVALID_ADMIN_ROLE");
   }
   return value;
 }
@@ -183,6 +184,14 @@ async function restoreClaims(uid, previousClaims) {
     console.error("Admin claim rollback failed", { uid, code: cause.code || "unknown" });
   }
 }
+async function restoreAdminRecord(ref, previousData) {
+  try {
+    if (previousData) await ref.set(previousData);
+    else await ref.delete();
+  } catch (cause) {
+    console.error("Admin record rollback failed", { code: cause.code || "unknown" });
+  }
+}
 
 export async function searchVerifiedUserByEmail(req, email) {
   const admin = await requireSuperAdmin(req);
@@ -227,24 +236,37 @@ export async function getAdministratorDetail(req, uid) {
 export async function promoteAdministrator(req, body) {
   const admin = await requireRecentSuperAdmin(req);
   const role = validateLimitedRole(body.role);
-  const email = sanitizeEmail(body.email);
+  const targetUid = cleanText(body.uid, 128);
   const confirmation = cleanText(body.confirmation, 40);
-  if (confirmation !== "ADD ADMIN") throw adminError(400, "Type ADD ADMIN to confirm administrator promotion.");
+  if (!targetUid) throw adminError(400, "Target Firebase UID is required.", "Select a verified user before granting administrator access.", "TARGET_UID_REQUIRED");
+  if (confirmation !== "ADD ADMIN") throw adminError(400, "Type ADD ADMIN to confirm administrator promotion.", "Type ADD ADMIN to confirm administrator promotion.", "CONFIRMATION_REQUIRED");
+
   let user;
-  try { user = await appAuth().getUserByEmail(email); } catch { throw adminError(404, "Target Firebase user was not found."); }
-  if (!user.emailVerified) throw adminError(400, "Only verified email accounts can be promoted.");
-  if (user.disabled) throw adminError(400, "Disabled Firebase Authentication accounts cannot be promoted.");
-  const existing = await getAdminRecord(user.uid);
-  if (existing?.status === "active") throw adminError(400, "This user is already an active administrator.");
-  if (existing?.role === "super_admin") throw adminError(400, "Super-admin records cannot be modified here.");
+  try {
+    user = await appAuth().getUser(targetUid);
+  } catch {
+    throw adminError(404, "Target Firebase user was not found.", "Target Firebase user was not found.", "TARGET_USER_NOT_FOUND");
+  }
+
+  if (!user.emailVerified) throw adminError(400, "Only verified email accounts can be promoted.", "This email must be verified first.", "TARGET_EMAIL_UNVERIFIED");
+  if (user.disabled) throw adminError(400, "Disabled Firebase Authentication accounts cannot be promoted.", "This account is disabled.", "TARGET_ACCOUNT_DISABLED");
 
   const db = getDb();
   const ref = db.collection("adminUsers").doc(user.uid);
-  const previousClaims = await setAdminClaims(user.uid, role);
+  const existingSnap = await ref.get();
+  const existing = existingSnap.exists ? { id: existingSnap.id, ...existingSnap.data() } : null;
+  if (existing?.status === "active") throw adminError(409, "This user is already an active administrator.", "This user is already an administrator.", "ADMIN_ALREADY_ACTIVE");
+  if (existing?.role === "super_admin") throw adminError(409, "Super-admin records cannot be modified here.", "Super-admin records cannot be modified here.", "SUPER_ADMIN_NOT_ASSIGNABLE");
+
+  const previousClaims = user.customClaims || null;
+  const previousRecord = existingSnap.exists ? existingSnap.data() : null;
+  let wroteRecord = false;
+
   try {
+    await setAdminClaims(user.uid, role);
     await ref.set({
       uid: user.uid,
-      email: user.email || email,
+      email: user.email || "",
       displayName: user.displayName || user.email || "Administrator",
       role,
       status: "active",
@@ -254,19 +276,42 @@ export async function promoteAdministrator(req, body) {
       createdByEmail: admin.email || "",
       createdAt: existing?.createdAt || serverTimestamp(),
       updatedAt: serverTimestamp(),
-      revokedAt: existing?.revokedAt || null,
-      revokedBy: existing?.revokedBy || "",
-      revocationReason: existing?.revocationReason || ""
+      suspendedAt: null,
+      suspendedBy: "",
+      suspensionReason: "",
+      reactivatedAt: existing?.status === "suspended" ? serverTimestamp() : existing?.reactivatedAt || null,
+      reactivatedBy: existing?.status === "suspended" ? admin.uid : existing?.reactivatedBy || "",
+      revokedAt: null,
+      revokedBy: "",
+      revocationReason: ""
     }, { merge: true });
+    wroteRecord = true;
+
+    await writeManagementLog({ admin, action: "admin.administrator.promoted", target: { uid: user.uid, email: user.email || "" }, previousRole: existing?.role || "", newRole: role, previousStatus: existing?.status || "", newStatus: "active" });
+
+    const [verifiedUser, savedSnap] = await Promise.all([appAuth().getUser(user.uid), ref.get()]);
+    const saved = savedSnap.data() || {};
+    if (verifiedUser.customClaims?.admin !== true || verifiedUser.customClaims?.adminRole !== role || !savedSnap.exists || saved.role !== role || saved.status !== "active") {
+      throw adminError(500, "Administrator promotion verification failed.", "Administrator access could not be granted. Check the server logs.", "ADMIN_PROMOTION_VERIFY_FAILED");
+    }
+
+    return {
+      administrator: safeAdminManagementRecord(user.uid, saved, verifiedUser),
+      message: `Administrator access granted successfully. Role: ${roleLabelForMessage(role)}. The new administrator must sign out and sign in again.`,
+      claimsVerified: true,
+      firestoreVerified: true
+    };
   } catch (cause) {
     await restoreClaims(user.uid, previousClaims);
-    throw adminError(500, "Could not save administrator record.", "Administrator promotion could not be completed. No success was recorded.");
+    if (wroteRecord) await restoreAdminRecord(ref, previousRecord);
+    if (cause.statusCode) throw cause;
+    throw adminError(500, "Could not complete administrator promotion.", "Administrator access could not be granted. Check the server logs.", "ADMIN_PROMOTION_FAILED");
   }
-  const target = { uid: user.uid, email: user.email || email };
-  await writeManagementLog({ admin, action: "admin.administrator.promoted", target, newRole: role, newStatus: "active" });
-  return { administrator: safeAdminManagementRecord(user.uid, (await ref.get()).data(), user), message: "Administrative access has been granted. The user must sign out and sign in again." };
 }
 
+function roleLabelForMessage(role) {
+  return role === "content_manager" ? "Content Manager" : role === "support" ? "Support" : "Admin";
+}
 export async function updateAdministratorRole(req, uid, body) {
   const admin = await requireRecentSuperAdmin(req);
   const role = validateLimitedRole(body.role);

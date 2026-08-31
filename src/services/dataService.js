@@ -127,7 +127,7 @@ export async function signOutUser() {
   await fb.authModule.signOut(fb.auth);
 }
 
-export async function reauthenticateCurrentUser(password = "") {
+export async function reauthenticateCurrentUser(password = "", options = {}) {
   const fb = await getFirebase();
   const user = fb?.auth?.currentUser;
   if (!user) throw new Error("Login required.");
@@ -135,6 +135,7 @@ export async function reauthenticateCurrentUser(password = "") {
   const providerIds = user.providerData.map((provider) => provider.providerId);
   if (providerIds.includes("google.com")) {
     const provider = new fb.authModule.GoogleAuthProvider();
+    if (options.selectAccount !== false) provider.setCustomParameters({ prompt: "select_account" });
     await fb.authModule.reauthenticateWithPopup(user, provider);
   } else {
     if (!user.email || !password) throw new Error("Enter your password to reauthenticate.");
@@ -392,18 +393,51 @@ export async function getAuthToken(forceRefresh = false) {
   return fb.auth.currentUser.getIdToken(forceRefresh);
 }
 
+function friendlyApiError(status, code, message) {
+  if (code === "RECENT_LOGIN_REQUIRED") return "Recent authentication is required.";
+  if (code === "ADMIN_ALREADY_ACTIVE") return "This user is already an administrator.";
+  if (code === "TARGET_EMAIL_UNVERIFIED") return "This email must be verified first.";
+  if (code === "TARGET_ACCOUNT_DISABLED") return "This account is disabled.";
+  if (status === 401) return "Your admin session has expired. Please sign in again.";
+  if (status === 403) return message || "You do not have permission to manage administrators.";
+  if (status === 404) return message || "The requested admin account or API route was not found.";
+  if (status === 409) return message || "This user is already an administrator.";
+  if (status >= 500) return message || "Administrator access could not be granted. Check the server logs.";
+  if (message) return message;
+  return "Network error. Please try again.";
+}
+
 async function apiFetch(path, options = {}) {
-  const token = await getAuthToken(Boolean(options.forceRefresh));
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {})
-    }
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Request failed.");
+  let response;
+  try {
+    const token = await getAuthToken(Boolean(options.forceRefresh));
+    response = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {})
+      }
+    });
+  } catch (cause) {
+    const error = new Error("Network error. Please try again.");
+    error.cause = cause;
+    throw error;
+  }
+
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: response.ok ? "" : "Request failed." };
+  }
+  if (!response.ok) {
+    const error = new Error(friendlyApiError(response.status, data.code, data.error));
+    error.status = response.status;
+    error.code = data.code || "REQUEST_FAILED";
+    throw error;
+  }
   return data;
 }
 
