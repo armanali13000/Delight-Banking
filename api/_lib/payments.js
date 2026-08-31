@@ -374,7 +374,7 @@ export async function createOrderForVariant(user, variantId, billing = {}) {
   };
 }
 
-async function syncOrderWithCashfree(orderRef, source = "status_check") {
+export async function syncOrderWithCashfree(orderRef, source = "status_check") {
   const db = getDb();
   const orderSnap = await orderRef.get();
   if (!orderSnap.exists) {
@@ -520,6 +520,13 @@ export async function getOrderStatusForUser(user, orderId) {
 
 export async function getUserPaymentSummary(user) {
   const db = getDb();
+  const studentSnap = await db.collection("students").doc(user.uid).get();
+  const accountStatus = studentSnap.exists ? studentSnap.data().accountStatus || studentSnap.data().status : "active";
+  if (["suspended", "blocked"].includes(accountStatus)) {
+    const error = new Error("This account cannot access protected subscription content.");
+    error.statusCode = 403;
+    throw error;
+  }
   const [subsSnap, paymentsSnap, ordersSnap] = await Promise.all([
     db.collection("subscriptions").where("userId", "==", user.uid).get(),
     db.collection("payments").where("userId", "==", user.uid).limit(50).get(),

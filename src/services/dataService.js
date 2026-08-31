@@ -544,6 +544,85 @@ export async function revokeAdministrator(uid, payload) {
     forceRefresh: true
   });
 }
+function adminQuery(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.set(key, value);
+  });
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
+export async function getAdminUsers(params = {}) {
+  return apiFetch(`/api/admin/users${adminQuery(params)}`, { forceRefresh: true });
+}
+
+export async function getAdminUser(uid) {
+  return apiFetch(`/api/admin/users/${encodeURIComponent(uid)}`, { forceRefresh: true });
+}
+
+export async function updateAdminUser(uid, payload) {
+  return apiFetch(`/api/admin/users/${encodeURIComponent(uid)}`, { method: "PATCH", body: JSON.stringify(payload), forceRefresh: true });
+}
+
+export async function updateAdminUserStatus(uid, payload) {
+  return apiFetch(`/api/admin/users/${encodeURIComponent(uid)}/status`, { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+}
+
+export async function addAdminEntityNote(entityType, entityId, payload) {
+  return apiFetch(`/api/admin/${entityType}s/${encodeURIComponent(entityId)}/notes`, { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+}
+
+export async function getAdminSubscriptions(params = {}) {
+  return apiFetch(`/api/admin/subscriptions${adminQuery(params)}`, { forceRefresh: true });
+}
+
+export async function getAdminSubscription(id) {
+  return apiFetch(`/api/admin/subscriptions/${encodeURIComponent(id)}`, { forceRefresh: true });
+}
+
+export async function grantAdminSubscription(payload) {
+  return apiFetch("/api/admin/subscriptions/grant", { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+}
+
+export async function mutateAdminSubscription(id, action, payload) {
+  return apiFetch(`/api/admin/subscriptions/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+}
+
+export async function getAdminOrders(params = {}) {
+  return apiFetch(`/api/admin/orders${adminQuery(params)}`, { forceRefresh: true });
+}
+
+export async function getAdminOrder(id) {
+  return apiFetch(`/api/admin/orders/${encodeURIComponent(id)}`, { forceRefresh: true });
+}
+
+export async function getAdminTransactions(params = {}) {
+  return apiFetch(`/api/admin/transactions${adminQuery(params)}`, { forceRefresh: true });
+}
+
+export async function getAdminTransaction(id) {
+  return apiFetch(`/api/admin/transactions/${encodeURIComponent(id)}`, { forceRefresh: true });
+}
+
+export async function reconcileAdminTransaction(id) {
+  return apiFetch(`/api/admin/transactions/${encodeURIComponent(id)}/reconcile`, { method: "POST", forceRefresh: true });
+}
+
+export async function exportAdminReport(reportType, params = {}) {
+  const token = await getAuthToken(true);
+  const response = await fetch(`/api/admin/exports/${encodeURIComponent(reportType)}${adminQuery(params)}`, { headers: { Authorization: `Bearer ${token}` } });
+  const text = await response.text();
+  if (!response.ok) {
+    let data = {};
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    const error = new Error(friendlyApiError(response.status, data.code, data.error));
+    error.status = response.status;
+    error.code = data.code || "REQUEST_FAILED";
+    throw error;
+  }
+  return { filename: response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] || `${reportType}.csv`, csv: text };
+}
 export async function createPaymentOrder(variantId, billing) {
   return apiFetch("/api/payments/create-order", {
     method: "POST",
