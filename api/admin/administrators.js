@@ -1,6 +1,6 @@
-import { requireSuperAdmin } from "../../_lib/adminAuth.js";
-import { listAdministrators } from "../../_lib/adminManagement.js";
-import { handleError, method, sendJson } from "../../_lib/http.js";
+import { requireSuperAdmin } from "../_lib/adminAuth.js";
+import { listAdministrators } from "../_lib/adminManagement.js";
+import { handleError, method, sendJson } from "../_lib/http.js";
 
 export default async function handler(req, res) {
   if (!method(req, res, ["GET"])) return;
