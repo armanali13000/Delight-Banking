@@ -482,6 +482,13 @@ export async function updateAdminProfile(profile) {
   });
 }
 
+export async function getAdminDashboardOverview(params = {}) {
+  const query = new URLSearchParams({ dashboard: "overview" });
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.set(key, value);
+  });
+  return apiFetch(`/api/admin/me?${query.toString()}`, { forceRefresh: false });
+}
 export async function getAdminActivityLogs(limit = 25) {
   return apiFetch(`/api/admin/activity-logs?limit=${encodeURIComponent(limit)}`, { forceRefresh: true });
 }
@@ -577,6 +584,8 @@ function rememberStudent(user, extra = {}) {
     city: extra.city || existing.city || "",
     address: extra.address || existing.address || "",
     targetExam: extra.targetExam || existing.targetExam || "",
+    provider: extra.provider || user.providerData?.[0]?.providerId || existing.provider || "password",
+    emailVerified: Boolean(user.emailVerified ?? existing.emailVerified),
     activeExams: extra.activeExams || existing.activeExams || [],
     tracking: normalizeTracking(extra.tracking || existing.tracking || getStudyTracking(user.email)),
     lastSeenAt: new Date().toISOString()

@@ -13,6 +13,7 @@ export default async function handler(req, res) {
     const body = await readJson(req);
     const displayName = cleanText(body.displayName || admin.displayName);
     const photoURL = String(body.photoURL || admin.photoURL || "").trim().slice(0, 500);
+    const businessPhone = cleanText(body.businessPhone || admin.businessPhone || "", 30);
     if (displayName.length < 2) {
       const error = new Error("Display name is required.");
       error.statusCode = 400;
@@ -20,10 +21,10 @@ export default async function handler(req, res) {
     }
     const db = getDb();
     const ref = db.collection("adminUsers").doc(admin.uid);
-    await ref.set({ displayName, photoURL, updatedAt: serverTimestamp() }, { merge: true });
+    await ref.set({ displayName, photoURL, businessPhone, updatedAt: serverTimestamp() }, { merge: true });
     const updated = await ref.get();
     const nextAdmin = safeAdmin({ uid: admin.uid, email: admin.email, ...updated.data() });
-    await writeAdminActivityLog({ admin: nextAdmin, action: "admin.profile.update", entityType: "adminUser", entityId: admin.uid, safeMetadata: { fields: ["displayName", "photoURL"].filter((field) => field in body) } });
+    await writeAdminActivityLog({ admin: nextAdmin, action: "admin.profile.update", entityType: "adminUser", entityId: admin.uid, safeMetadata: { fields: ["displayName", "photoURL", "businessPhone"].filter((field) => field in body) } });
     sendJson(res, 200, { admin: nextAdmin });
   } catch (error) {
     handleError(res, error);

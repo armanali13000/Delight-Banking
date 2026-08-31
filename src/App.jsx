@@ -11,6 +11,7 @@ import {
   getActiveAccessTags,
   getActiveSubscriptions,
   getAdminActivityLogs,
+  getAdminDashboardOverview,
   getAdminMe,
   getOrderStatus,
   getPaymentSummary,
@@ -47,7 +48,7 @@ const examCards = [
 ];
 
 const productionSiteUrl = "https://www.delightguidance.com";
-const homeTitle = "Delight Banking – Banking Exam Mentorship & Guidance";
+const homeTitle = "Delight Banking - Banking Exam Mentorship & Guidance";
 const homeDescription = "Prepare for banking and insurance examinations with structured targets, personal mentorship, mock analysis and guidance from Imran Sir.";
 
 function setMetaTag(attribute, key, content) {
@@ -202,8 +203,9 @@ function daysRemaining(value) {
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 86400000));
 }
 
-function routeTo(path) {
-  window.history.pushState({}, "", path);
+function routeTo(path, options = {}) {
+  if (options.replace) window.history.replaceState({}, "", path);
+  else window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -632,7 +634,8 @@ function AdminPageHeader({ eyebrow, title, description, admin }) {
 }
 
 function AdminSidebar({ activePath, admin, onNavigate, onClose }) {
-  return <aside className="admin-sidebar"><div className="admin-sidebar-brand"><Brand small="Admin Portal" /></div><nav>{adminNavItems.map(([path, label, permission]) => <button key={path} className={activePath === path ? "active" : ""} type="button" onClick={() => { onNavigate(path); if (onClose) onClose(); }} disabled={!adminHasPermission(admin, permission) && !["/admin/users", "/admin/subscriptions", "/admin/orders", "/admin/transactions", "/admin/plans", "/admin/resources", "/admin/targets", "/admin/classes", "/admin/support", "/admin/refunds", "/admin/disputes", "/admin/reports", "/admin/settings"].includes(path)}>{label}</button>)}</nav></aside>;
+  const visibleItems = adminNavItems.filter(([, , permission]) => adminHasPermission(admin, permission));
+  return <aside className="admin-sidebar"><div className="admin-sidebar-brand"><Brand small="Admin Portal" /></div><nav>{visibleItems.map(([path, label]) => <button key={path} className={activePath === path ? "active" : ""} type="button" onClick={() => { onNavigate(path); if (onClose) onClose(); }}>{label}</button>)}</nav></aside>;
 }
 
 function AdminProfileMenu({ admin, onLogout }) {
@@ -658,27 +661,52 @@ function AdminLayout({ admin, activePath, children }) {
 }
 
 function AdminRouteGuard({ path, children }) {
-  const [state, setState] = useState({ loading: true, admin: null, error: "" });
+  const [state, setState] = useState({ status: "loading", admin: null, error: "" });
+
   useEffect(() => {
     let cancelled = false;
-    async function check() {
+    let unsubscribeAuth = null;
+
+    async function authorize(currentUser) {
+      if (!currentUser) {
+        if (!cancelled) setState({ status: "unauthenticated", admin: null, error: "" });
+        return;
+      }
+      if (!cancelled) setState((current) => ({ ...current, status: "loading", error: "" }));
       try {
-        const result = await getAdminMe({ forceRefresh: true, logAccess: path === "/admin" });
-        if (!cancelled) setState({ loading: false, admin: result.admin, error: "" });
+        const result = await getAdminMe({ forceRefresh: false, logAccess: path === "/admin" });
+        if (!cancelled) setState({ status: "authenticated_admin", admin: result.admin, error: "" });
       } catch (error) {
         if (cancelled) return;
-        if (error.message === "Login required.") routeTo(`${appBase}admin/login`);
-        else routeTo(`${appBase}admin/access-denied`);
+        if (error.status === 401 || error.message === "Login required.") setState({ status: "unauthenticated", admin: null, error: "" });
+        else if (error.status === 403) setState({ status: "authenticated_but_unauthorized", admin: null, error: error.message });
+        else setState({ status: "error", admin: null, error: error.message || "Unable to verify administrator access." });
       }
     }
-    check();
-    return () => { cancelled = true; };
+
+    listenToAuth(authorize).then((unsubscribe) => {
+      unsubscribeAuth = unsubscribe;
+      if (cancelled && typeof unsubscribeAuth === "function") unsubscribeAuth();
+    }).catch((error) => {
+      if (!cancelled) setState({ status: "error", admin: null, error: error.message || "Unable to restore Firebase session." });
+    });
+
+    return () => {
+      cancelled = true;
+      if (typeof unsubscribeAuth === "function") unsubscribeAuth();
+    };
   }, [path]);
-  if (state.loading) return <AdminLoadingSkeleton />;
-  if (state.error) return <AdminErrorState message={state.error} />;
+
+  useEffect(() => {
+    if (state.status === "unauthenticated") routeTo(`${appBase}admin/login`, { replace: true });
+  }, [state.status]);
+
+  if (state.status === "loading") return <AdminLoadingSkeleton />;
+  if (state.status === "unauthenticated") return <AdminLoadingSkeleton />;
+  if (state.status === "authenticated_but_unauthorized") return <AdminAccessDeniedPage message={state.error} />;
+  if (state.status === "error") return <main className="admin-portal-page"><AdminErrorState message={state.error} /></main>;
   return children(state.admin);
 }
-
 function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -759,23 +787,112 @@ function AdminLoginPage() {
 
   return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Secure Administration</p><h1>Delight Banking Admin</h1>{checkingSession ? <p className="form-message neutral">Checking admin authorization...</p> : <><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label><label>Password<div className="password-row"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "Hide" : "Show"}</button></div></label><button className="primary-button full" type="button" disabled={loading} onClick={() => finishLogin(() => signInWithEmail(email.trim(), password, "signin"))}>{loading ? "Checking access..." : "Login"}</button><button className="google-button full" type="button" disabled={loading} onClick={() => finishLogin(() => signInWithGoogle({ selectAccount: true }))}><span>G</span>Continue with Google</button><div className="auth-links"><button className="text-button" type="button" onClick={forgotPassword}>Forgot password?</button><a className="text-button" href={appBase}>Back to website</a></div>{message && <p className={`form-message ${accessDenied ? "" : "neutral"}`}>{message}</p>}{accessDenied && <div className="admin-login-actions"><button className="ghost-button full" type="button" disabled={loading} onClick={useDifferentAccount}>Use a Different Account</button><a className="ghost-button full" href={`${appBase}student-desk`}>Return to Student Dashboard</a></div>}</>}</section></main>;
 }
+function adminMetricValue(metric) {
+  return metric?.currency ? formatPrice(metric.value || 0) : new Intl.NumberFormat("en-IN").format(metric?.value || 0);
+}
+
+function DashboardFilters({ filters, setFilters }) {
+  const rangeLabels = { today: "Today", last_7_days: "Last 7 days", last_30_days: "Last 30 days", this_month: "This month", previous_month: "Previous month", custom: "Custom", all_time: "All time" };
+  return <section className="admin-card admin-filter-bar"><div>{Object.entries(rangeLabels).map(([value, label]) => <button key={value} className={filters.range === value ? "active" : ""} type="button" onClick={() => setFilters({ ...filters, range: value })}>{label}</button>)}</div>{filters.range === "custom" && <div className="admin-date-fields"><label>Start<input type="date" value={filters.start || ""} onChange={(event) => setFilters({ ...filters, start: event.target.value })} /></label><label>End<input type="date" value={filters.end || ""} onChange={(event) => setFilters({ ...filters, end: event.target.value })} /></label></div>}</section>;
+}
+
+function MiniBarChart({ title, data = [], valuePrefix = "" }) {
+  const max = Math.max(1, ...data.map((item) => Number(item.value || 0)));
+  return <section className="admin-card admin-chart"><h2>{title}</h2>{data.length ? <div className="admin-bars" role="list" aria-label={title}>{data.map((item) => <div className="admin-bar-row" key={item.label} role="listitem"><span>{item.label}</span><div><i style={{ width: `${Math.max(4, (Number(item.value || 0) / max) * 100)}%` }}></i></div><strong>{valuePrefix}{new Intl.NumberFormat("en-IN").format(item.value || 0)}</strong></div>)}</div> : <AdminEmptyState title="No data" text="No records match the selected date range." />}</section>;
+}
+
+function DistributionChart({ title, data = [] }) {
+  const total = data.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  return <section className="admin-card admin-chart"><h2>{title}</h2>{total ? <div className="admin-distribution">{data.filter((item) => item.value).map((item) => <div key={item.label}><span>{item.label.replace(/_/g, " ")}</span><div><i style={{ width: `${(item.value / total) * 100}%` }}></i></div><strong>{item.value}</strong></div>)}</div> : <AdminEmptyState title="No payments" text="No payment records match this date range." />}</section>;
+}
+
 function AdminOverview({ admin }) {
-  const roadmap = ["Secure roles and profile foundation", "Phase 2 analytics and operational modules", "Future role management and audit workflows"];
-  return <><AdminPageHeader eyebrow="Overview" title={`Welcome, ${admin.displayName}`} description="The admin foundation is active. Analytics and operations modules will be added in later phases." admin={admin} /><div className="admin-foundation-grid"><article><span>Account status</span><strong>{admin.status}</strong></article><article><span>Secure session</span><strong>Verified</strong></article><article><span>Profile</span><a className="ghost-button" href={`${appBase}admin/profile`}>Open profile</a></article></div><section className="admin-card"><h2>Phase roadmap</h2>{roadmap.map((item) => <p key={item}>{item}</p>)}</section><section className="admin-card"><h2>Security notice</h2><p>Admin access is verified with Firebase custom claims and the server-side adminUsers record. Protected content is not rendered until authorization completes.</p></section><div className="admin-placeholder-grid"><AdminEmptyState title="Analytics" /><AdminEmptyState title="Users" /><AdminEmptyState title="Payments" /></div></>;
+  const [filters, setFilters] = useState({ range: "last_30_days", start: "", end: "" });
+  const [dashboard, setDashboard] = useState(null);
+  const [message, setMessage] = useState("Loading dashboard...");
+
+  async function loadDashboard() {
+    setMessage("Loading dashboard...");
+    try {
+      const result = await getAdminDashboardOverview(filters);
+      setDashboard(result.dashboard);
+      setMessage("");
+    } catch (error) {
+      setMessage(error.message || "Unable to load dashboard data.");
+    }
+  }
+
+  useEffect(() => { loadDashboard(); }, [filters.range, filters.start, filters.end]);
+
+  const summary = dashboard?.summary || {};
+  const metrics = [
+    ["Total registered users", summary.totalRegisteredUsers],
+    ["New users", summary.newUsers],
+    ["Email/password users", summary.passwordUsers],
+    ["Google-login users", summary.googleUsers],
+    ["Verified users", summary.verifiedUsers],
+    ["Active subscriptions", summary.activeSubscriptions],
+    ["Expiring subscriptions", summary.expiringSubscriptions],
+    ["Expired subscriptions", summary.expiredSubscriptions],
+    ["Successful payments", summary.successfulPayments],
+    ["Pending payments", summary.pendingPayments],
+    ["Failed payments", summary.failedPayments],
+    ["Cancelled/user-dropped", summary.cancelledPayments],
+    ["Total verified revenue", summary.totalVerifiedRevenue, true],
+    ["Refunds", summary.refunds, true],
+    ["Active administrators", summary.activeAdministrators]
+  ];
+  const quickActions = [["View Users", "/admin/users", "users.view"], ["View Subscriptions", "/admin/subscriptions", "subscriptions.view"], ["View Transactions", "/admin/transactions", "payments.view"], ["Manage Plans", "/admin/plans", "plans.manage"], ["Manage Resources", "/admin/resources", "resources.manage"], ["Add Administrator", "/admin/administrators", "admins.manage"], ["View Activity Logs", "/admin/activity-logs", "admin.activity_logs.view"]].filter(([, , permission]) => adminHasPermission(admin, permission));
+
+  return <><AdminPageHeader eyebrow="Overview" title="Operations dashboard" description="Server-verified administrator source: Firebase ID token custom claims plus the active adminUsers record. Dates are displayed for India using the Asia/Kolkata policy." admin={admin} /><DashboardFilters filters={filters} setFilters={setFilters} />{message && <AdminErrorState message={message} />}{dashboard && <><div className="admin-metric-grid">{metrics.map(([label, value, currency]) => <article className="admin-metric-card" key={label}><span>{label}</span><strong>{adminMetricValue({ value, currency })}</strong></article>)}</div><section className="admin-card admin-quick-actions"><h2>Quick actions</h2><div>{quickActions.map(([label, href]) => <a className="ghost-button" key={label} href={`${appBase}${href.replace(/^\//, "")}`}>{label}</a>)}</div></section><div className="admin-chart-grid"><MiniBarChart title="User registrations over time" data={dashboard.userGrowth} /><MiniBarChart title="Successful revenue over time" data={dashboard.revenueGrowth} valuePrefix="Rs " /><DistributionChart title="Payment status distribution" data={dashboard.paymentDistribution} /><MiniBarChart title="Subscription purchases by plan" data={dashboard.planPerformance.map((item) => ({ label: `${item.planName} ${item.durationLabel}`, value: item.verifiedPurchases }))} /><MiniBarChart title="Active subscriptions by plan" data={dashboard.planPerformance.map((item) => ({ label: `${item.planName} ${item.durationLabel}`, value: item.activeSubscriptions }))} /></div><section className="admin-card admin-table-wrap"><h2>Recent registrations</h2>{dashboard.recentUsers.length ? <table className="admin-table"><thead><tr><th>User</th><th>Email</th><th>Provider</th><th>Verified</th><th>Registered</th><th>Subscription</th><th>Action</th></tr></thead><tbody>{dashboard.recentUsers.map((user) => <tr key={user.uid}><td>{user.photoURL ? <img className="admin-inline-avatar" src={user.photoURL} alt="" /> : <span className="admin-inline-avatar">{(user.displayName || user.email || "U").slice(0, 1).toUpperCase()}</span>} {user.displayName}</td><td>{user.email}</td><td>{user.provider}</td><td>{user.emailVerified ? "Verified" : "Not verified"}</td><td>{formatDate(user.createdAt)}</td><td>{user.subscriptionSummary}</td><td><a className="text-button" href={`${appBase}admin/users/${encodeURIComponent(user.uid)}`}>Open Profile</a></td></tr>)}</tbody></table> : <AdminEmptyState title="No registrations" text="No user registrations match this range." />}</section><section className="admin-card admin-table-wrap"><h2>Recent transactions</h2>{dashboard.recentTransactions.length ? <table className="admin-table"><thead><tr><th>Order</th><th>User</th><th>Plan</th><th>Amount</th><th>Status</th><th>Created</th><th>Verified</th></tr></thead><tbody>{dashboard.recentTransactions.map((item) => <tr key={item.id}><td>{item.internalOrderId}<br /><small>{item.cashfreeOrderId}</small></td><td>{item.userName}<br /><small>{item.userEmail}</small></td><td>{item.planName}<br /><small>{item.durationLabel}</small></td><td>{formatPrice(item.amountInRupees)}</td><td>{paymentLabel(item.status)}</td><td>{formatDate(item.createdAt)}</td><td>{formatDate(item.verifiedAt)}</td></tr>)}</tbody></table> : <AdminEmptyState title="No transactions" text="No transactions match this range." />}</section><section className="admin-card admin-table-wrap"><h2>Expiring subscriptions</h2>{dashboard.expiringSubscriptions.length ? <table className="admin-table"><thead><tr><th>Student</th><th>Plan</th><th>Start</th><th>End</th><th>Days</th><th>Status</th></tr></thead><tbody>{dashboard.expiringSubscriptions.map((item) => <tr key={item.id}><td>{item.student}</td><td>{item.planName}<br /><small>{item.durationLabel}</small></td><td>{formatDate(item.accessStartAt)}</td><td>{formatDate(item.accessEndAt)}</td><td>{item.daysRemaining}</td><td>{item.status}</td></tr>)}</tbody></table> : <AdminEmptyState title="No expiring subscriptions" text="No active subscriptions expire in the next 30 days." />}</section><section className="admin-card admin-table-wrap"><h2>Plan performance</h2><table className="admin-table"><thead><tr><th>Plan</th><th>Duration</th><th>Purchases</th><th>Active</th><th>Expired</th><th>Revenue</th><th>Refunds</th><th>Net</th></tr></thead><tbody>{dashboard.planPerformance.map((item) => <tr key={item.key}><td>{item.planName}</td><td>{item.durationLabel}</td><td>{item.verifiedPurchases}</td><td>{item.activeSubscriptions}</td><td>{item.expiredSubscriptions}</td><td>{formatPrice(item.verifiedRevenue)}</td><td>{formatPrice(item.refundAmount)}</td><td>{formatPrice(item.netVerifiedRevenue)}</td></tr>)}</tbody></table></section></>}</>;
+}
+
+function permissionGroup(permission) {
+  if (permission.startsWith("users.")) return "Users";
+  if (permission.startsWith("subscriptions.")) return "Subscriptions";
+  if (permission.startsWith("payments.") || permission.startsWith("refunds.")) return "Payments";
+  if (permission.startsWith("resources.") || permission.startsWith("plans.") || permission.startsWith("targets.") || permission.startsWith("classes.")) return "Content";
+  if (permission.startsWith("admin.") || permission.startsWith("admins.")) return "Administration";
+  return "Other";
+}
+
+function groupedPermissions(permissions = []) {
+  return permissions.reduce((groups, permission) => {
+    const group = permissionGroup(permission);
+    groups[group] = [...(groups[group] || []), permission];
+    return groups;
+  }, {});
 }
 
 function AdminProfilePage({ admin, onUpdated }) {
   const [displayName, setDisplayName] = useState(admin.displayName || "");
   const [photoURL, setPhotoURL] = useState(admin.photoURL || "");
+  const [businessPhone, setBusinessPhone] = useState(admin.businessPhone || "");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = (displayName || admin.email || "A").slice(0, 1).toUpperCase();
+  const permissions = groupedPermissions(admin.permissions || []);
+
   async function save(event) {
     event.preventDefault();
+    setLoading(true);
     setMessage("");
-    try { const result = await updateAdminProfile({ displayName, photoURL }); onUpdated?.(result.admin); setMessage("Profile updated."); } catch (error) { setMessage(error.message); }
+    try {
+      const result = await updateAdminProfile({ displayName, photoURL, businessPhone });
+      onUpdated?.(result.admin);
+      setMessage("Profile updated.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
   }
+
   async function refreshSession() { await getAdminMe({ forceRefresh: true }); setMessage("Session refreshed."); }
-  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`); }
-  return <><AdminPageHeader eyebrow="Admin Profile" title="Profile and session" description="Manage safe profile details. Role, status, permissions and UID are controlled by secure admin processes." admin={admin} /><section className="admin-profile-card"><div className="admin-photo-preview">{photoURL ? <img src={photoURL} alt="" /> : <span>{displayName.slice(0, 1).toUpperCase()}</span>}</div><dl className="student-details"><div><dt>Display name</dt><dd>{admin.displayName}</dd></div><div><dt>Email</dt><dd>{admin.email}</dd></div><div><dt>Firebase UID</dt><dd>{admin.uid}</dd></div><div><dt>Role</dt><dd>{admin.role}</dd></div><div><dt>Status</dt><dd>{admin.status}</dd></div><div><dt>Created</dt><dd>{formatDate(admin.createdAt)}</dd></div><div><dt>Last admin access</dt><dd>{formatDate(admin.lastAdminAccessAt)}</dd></div></dl><form className="profile-edit-panel" onSubmit={save}><label>Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Profile photograph URL<input value={photoURL} onChange={(event) => setPhotoURL(event.target.value)} placeholder="https://..." /></label><div className="form-actions"><button className="primary-button" type="submit">Save Profile</button><button className="ghost-button" type="button" onClick={refreshSession}>Refresh session</button><a className="ghost-button" href={`${appBase}admin`}>Return to admin dashboard</a><button className="text-button" type="button" onClick={logout}>Sign out</button></div>{message && <p className="form-message">{message}</p>}</form></section></>;
+  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`, { replace: true }); }
+
+  return <><AdminPageHeader eyebrow="Admin Profile" title="Profile and session" description="Role, status, permissions and UID are read-only security fields verified by the server." admin={admin} /><section className="admin-profile-card admin-profile-pro"><div className="admin-profile-hero"><div className="admin-photo-preview">{photoURL && !imageFailed ? <img src={photoURL} alt="" onError={() => setImageFailed(true)} /> : <span>{initials}</span>}</div><div><h2>{admin.displayName}</h2><p>{admin.email}</p><div className="admin-badge-row"><AdminRoleBadge role={admin.role} /><span className={`admin-status-badge ${admin.status}`}>{statusLabel(admin.status)}</span></div></div></div><dl className="student-details admin-security-fields"><div><dt>Firebase UID</dt><dd>{admin.uid}</dd></div><div><dt>Authentication provider</dt><dd>{admin.provider || "unknown"}</dd></div><div><dt>Email verification</dt><dd>{admin.emailVerified === null ? "Not available" : admin.emailVerified ? "Verified" : "Not verified"}</dd></div><div><dt>Created date</dt><dd>{formatDate(admin.createdAt)}</dd></div><div><dt>Last admin access</dt><dd>{formatDate(admin.lastAdminAccessAt)}</dd></div><div><dt>Last profile update</dt><dd>{formatDate(admin.updatedAt)}</dd></div></dl><section className="admin-permission-groups"><h3>Assigned permissions</h3>{Object.entries(permissions).map(([group, items]) => <div key={group}><strong>{group}</strong><div className="permission-list">{items.map((permission) => <span key={permission}>{permission}</span>)}</div></div>)}</section><form className="profile-edit-panel" onSubmit={save}><label>Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Profile photograph URL<input value={photoURL} onChange={(event) => { setPhotoURL(event.target.value); setImageFailed(false); }} placeholder="https://..." /></label><label>Business phone<input value={businessPhone} onChange={(event) => setBusinessPhone(event.target.value)} placeholder="Optional" /></label><div className="form-actions"><button className="primary-button" type="submit" disabled={loading}>{loading ? "Saving..." : "Save Profile"}</button><button className="ghost-button" type="button" onClick={refreshSession}>Refresh session</button><a className="ghost-button" href={`${appBase}admin`}>Return to Dashboard</a><button className="text-button" type="button" onClick={logout}>Sign Out</button></div>{message && <p className="form-message neutral">{message}</p>}</form></section></>;
 }
 
 function AdminActivityLogsPage({ admin }) {
@@ -921,19 +1038,26 @@ function AdminAdministratorDetailPage({ admin, uid }) {
   function applyUpdate(next) { setDetail((current) => ({ ...(current || {}), administrator: next, activity: current?.activity || [] })); }
   return <PermissionGate admin={admin} permission="admins.manage"><AdminPageHeader eyebrow="Administrator" title="Administrator details" description="Review profile, access status, permissions and recent safe activity." admin={admin} />{message ? <AdminEmptyState title="Administrator details" text={message} /> : item && <><section className="admin-profile-card"><div className="admin-detail-heading"><div><h2>{item.displayName}</h2><p>{item.email}</p></div><span className={`admin-status-badge ${item.status}`}>{statusLabel(item.status)}</span></div><dl className="student-details"><div><dt>UID</dt><dd>{item.uid}</dd></div><div><dt>Role</dt><dd>{roleLabel(item.role)}</dd></div><div><dt>Provider</dt><dd>{item.provider}</dd></div><div><dt>Email verified</dt><dd>{item.emailVerified === null ? "Not available" : item.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Created by</dt><dd>{item.createdByEmail || "Bootstrap"}</dd></div><div><dt>Created</dt><dd>{formatDate(item.createdAt)}</dd></div><div><dt>Last access</dt><dd>{formatDate(item.lastAdminAccessAt)}</dd></div><div><dt>Updated</dt><dd>{formatDate(item.updatedAt)}</dd></div><div><dt>Suspension</dt><dd>{item.suspensionReason || "None"}</dd></div><div><dt>Revocation</dt><dd>{item.revocationReason || "None"}</dd></div></dl><div className="permission-list">{item.permissions.map((permission) => <span key={permission}>{permission}</span>)}</div><div className="form-actions">{item.uid !== admin.uid && item.role !== "super_admin" && item.status === "active" && <button className="ghost-button" type="button" onClick={() => setAction("role")}>Change Role</button>}{item.uid !== admin.uid && item.status === "active" && <button className="ghost-button" type="button" onClick={() => setAction("suspend")}>Suspend</button>}{item.status === "suspended" && <button className="ghost-button" type="button" onClick={() => setAction("reactivate")}>Reactivate</button>}{item.uid !== admin.uid && item.status !== "revoked" && <button className="primary-button danger-action" type="button" onClick={() => setAction("revoke")}>Revoke Access</button>}<a className="ghost-button" href={`${appBase}admin/administrators`}>Back</a></div></section><section className="admin-card admin-log-list"><h2>Recent safe activity</h2>{detail.activity?.length ? detail.activity.map((log) => <article key={log.id}><strong>{log.action}</strong><span>{formatDate(log.createdAt)}</span><p>{log.reason || log.safeMetadata?.reason || "No reason recorded."}</p></article>) : <AdminEmptyState title="No activity" text="No administrator-management activity has been recorded for this account yet." />}</section><AdminActionDialog action={action} adminUser={item} onCancel={() => setAction(null)} onDone={(next) => { applyUpdate(next); setAction(null); loadDetail(); }} /></>}</PermissionGate>;
 }
-function AdminModulePlaceholder({ admin, title }) {
-  return <><AdminPageHeader eyebrow="Admin Module" title={title} description="This module will be available in a later admin-panel phase." admin={admin} /><AdminEmptyState /></>;
+function AdminModulePlaceholder({ admin, title, permission }) {
+  return <PermissionGate admin={admin} permission={permission}><AdminPageHeader eyebrow="Admin Module" title={title} description="This module is routed and protected. Operational tools for this area continue in the next build phase." admin={admin} /><AdminEmptyState title="Module ready" text="Dashboard analytics are live; this detailed module will expand in the next admin phase." /></PermissionGate>;
 }
 
-function AdminAccessDeniedPage() {
+function AdminAccessDeniedPage({ message = "Administrative authorization is required to open this area." }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`); }
-  return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Access denied</p><h1>Access denied</h1><p>Administrative authorization is required to open this area.</p><div className="form-actions"><a className="primary-button" href={`${appBase}student-desk`}>Return to student dashboard</a><a className="ghost-button" href={appBase}>Return to website</a><button className="text-button" type="button" onClick={() => setConfirmOpen(true)}>Sign out</button></div></section><ConfirmationDialog open={confirmOpen} title="Sign out?" message="This will end the current session on this device." onCancel={() => setConfirmOpen(false)} onConfirm={logout} /></main>;
+  async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`, { replace: true }); }
+  return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Access denied</p><h1>Access denied</h1><p>{message}</p><div className="form-actions"><a className="primary-button" href={`${appBase}admin/login`}>Admin Login</a><a className="ghost-button" href={appBase}>Return to website</a><button className="text-button" type="button" onClick={() => setConfirmOpen(true)}>Sign out</button></div></section><ConfirmationDialog open={confirmOpen} title="Sign out?" message="This will end the current session on this device." onCancel={() => setConfirmOpen(false)} onConfirm={logout} /></main>;
+}
+
+function AdminUserDetailPage({ admin, uid }) {
+  return <PermissionGate admin={admin} permission="users.view"><AdminPageHeader eyebrow="User Profile" title="Student/user details" description="This protected route is ready for the detailed user module. The overview uses this route for user profile links." admin={admin} /><AdminEmptyState title="User details" text={`User ${uid} will open here when the detailed users module is expanded.`} /></PermissionGate>;
 }
 
 function AdminPage({ path }) {
   const administratorDetailMatch = path.match(/^\/admin\/administrators\/([^/]+)$/);
-  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={administratorDetailMatch ? "/admin/administrators" : path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
+  const userDetailMatch = path.match(/^\/admin\/users\/([^/]+)$/);
+  const navItem = adminNavItems.find(([itemPath]) => itemPath === path);
+  const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : path;
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
   return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
