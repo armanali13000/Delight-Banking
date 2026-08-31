@@ -70,15 +70,29 @@ function cleanDocId(value) {
   return String(value || crypto.randomUUID()).replace(/[\/#?\[\]]/g, "_");
 }
 
+function paymentStatusValue(payment) {
+  return String(payment?.payment_status || payment?.status || payment?.payment_status_code || "").toUpperCase();
+}
+
 function normalizeOrderStatus(status, payments = []) {
   const value = String(status || "").toUpperCase();
-  if (["PAID", "SUCCESS"].includes(value)) return "paid";
+  const paymentStatuses = Array.isArray(payments) ? payments.map(paymentStatusValue) : [];
+  if (["PAID", "SUCCESS"].includes(value) || paymentStatuses.includes("SUCCESS")) return "paid";
+  if (value === "FAILED" || paymentStatuses.includes("FAILED")) return "failed";
+  if (["USER_DROPPED", "CANCELLED", "TERMINATED", "EXPIRED"].includes(value) || paymentStatuses.includes("USER_DROPPED")) return "cancelled";
   if (["ACTIVE", "PENDING"].includes(value)) return "pending";
-  if (value === "USER_DROPPED") return "cancelled";
-  if (["FAILED", "CANCELLED", "TERMINATED"].includes(value)) return "failed";
-  if (value === "EXPIRED") return "expired";
-  const hasFailedAttempt = Array.isArray(payments) && payments.some((payment) => String(payment.payment_status || payment.status || "").toUpperCase() === "FAILED");
-  return hasFailedAttempt ? "failed" : "pending";
+  return "pending";
+}
+
+function hasCashfreePaymentAttempt(payments = []) {
+  return Array.isArray(payments) && payments.some((payment) => paymentStatusValue(payment) || payment?.cf_payment_id || payment?.payment_id);
+}
+
+function minutesSince(value) {
+  const date = value?.toDate ? value.toDate() : value instanceof Date ? value : value ? new Date(value) : null;
+  const time = date?.getTime?.();
+  if (!time || Number.isNaN(time)) return 0;
+  return (Date.now() - time) / 60000;
 }
 
 function getPaidPayment(payments) {
@@ -380,7 +394,10 @@ async function syncOrderWithCashfree(orderRef, source = "status_check") {
     fetchCashfreePayments(gatewayOrderId)
   ]);
 
-  const normalizedStatus = normalizeOrderStatus(gatewayOrder.order_status || gatewayOrder.payment_status, gatewayPayments);
+  let normalizedStatus = normalizeOrderStatus(gatewayOrder.order_status || gatewayOrder.payment_status, gatewayPayments);
+  const paymentAttempted = hasCashfreePaymentAttempt(gatewayPayments);
+  if (normalizedStatus === "pending" && ["failed", "cancelled"].includes(order.paymentStatus)) normalizedStatus = order.paymentStatus;
+  if (normalizedStatus === "pending" && !paymentAttempted && minutesSince(order.createdAt) >= 2) normalizedStatus = "cancelled";
   const gatewayAmount = gatewayOrder.order_amount ?? gatewayOrder.payment_amount;
   const gatewayCurrency = gatewayOrder.order_currency || order.currency;
   const expectedAmount = order.amountInRupees ?? order.amount ?? order.trustedPlanSnapshot?.priceInRupees;
@@ -435,8 +452,9 @@ async function syncOrderWithCashfree(orderRef, source = "status_check") {
   } else {
     const nextOrder = {
       paymentStatus: normalizedStatus,
-      orderStatus: normalizedStatus,
+      orderStatus: normalizedStatus === "cancelled" && !paymentAttempted ? "no_payment_attempt" : normalizedStatus,
       cashfreeOrderStatus: gatewayOrder.order_status || null,
+      paymentAttempted,
       updatedAt: serverTimestamp()
     };
     if (["failed", "expired", "cancelled"].includes(normalizedStatus)) nextOrder.failedAt = serverTimestamp();
@@ -496,8 +514,8 @@ export async function getOrderStatusForUser(user, orderId) {
     error.statusCode = 403;
     throw error;
   }
-  if (order.paymentStatus === "pending") return syncOrderWithCashfree(orderRef, "status_check");
-  return normalizedResult(orderRef, order);
+  if (order.paymentStatus === "paid") return normalizedResult(orderRef, order);
+  return syncOrderWithCashfree(orderRef, "status_check");
 }
 
 export async function getUserPaymentSummary(user) {
@@ -577,6 +595,16 @@ export async function processWebhookEvent(event, rawFallback = "") {
     await recordRefundOrDispute(db, event, orderId);
     await eventRef.update({ processed: true, updatedAt: serverTimestamp() });
     return { received: true, processed: true, recorded: true };
+  }
+
+  if (upperType.includes("PAYMENT_USER_DROPPED")) {
+    if (snap.data().paymentStatus === "paid") {
+      await eventRef.update({ processed: true, paymentStatus: "paid", ignored: true, reason: "already_paid", updatedAt: serverTimestamp() });
+      return { received: true, processed: true, paymentStatus: "paid" };
+    }
+    await orderRef.set({ paymentStatus: "cancelled", orderStatus: "user_dropped", cashfreeOrderStatus: "USER_DROPPED", paymentAttempted: false, failedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+    await eventRef.update({ processed: true, paymentStatus: "cancelled", updatedAt: serverTimestamp() });
+    return { received: true, processed: true, paymentStatus: "cancelled" };
   }
 
   try {

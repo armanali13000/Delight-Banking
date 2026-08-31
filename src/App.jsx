@@ -26,6 +26,7 @@ import {
   revokeAdministrator,
   saveStudyTracking,
   saveUserProfile,
+  searchAdminCandidate,
   resetPassword,
   signInWithEmail,
   signInWithGoogle,
@@ -421,42 +422,84 @@ function CheckoutPage({ variantId }) {
   return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="checkout-shell"><article className="checkout-summary premium-card"><span className="chip">Secure Checkout</span><h1>{plan.name}</h1><p className="plan-subtitle">{plan.subtitle}</p><p>{plan.coverage}</p><div className="plan-price-row"><div className="price">{formatPrice(variant.priceInRupees)}</div><span className="status-pill">{variant.durationLabel}</span></div><p>Access duration begins after verified payment activation. No automatic renewal or automatic debit is created.</p><ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul></article><article className="checkout-form premium-card"><h2>Student and billing details</h2>{!user && <p className="form-message">Login is required before payment.</p>}<label>Name<input value={profile.name || user?.displayName || ""} onChange={(event) => setProfile({ ...profile, name: event.target.value })} placeholder="Student name" /></label><label>Email<input value={user?.email || ""} disabled placeholder="Login required" /></label><label>Mobile number<input value={profile.phone || ""} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} placeholder="For receipt and support" /></label><label>Billing address<textarea rows="3" value={profile.address || ""} onChange={(event) => setProfile({ ...profile, address: event.target.value })} placeholder="Address for receipt records" /></label><label className="checkbox-row"><input type="checkbox" checked={accepted.terms} onChange={(event) => setAccepted({ ...accepted, terms: event.target.checked })} /> Payments are for educational mentorship and guidance services; exam selection, results or employment are not guaranteed.</label><label className="checkbox-row"><input type="checkbox" checked={accepted.refund} onChange={(event) => setAccepted({ ...accepted, refund: event.target.checked })} /> I understand the refund policy must be reviewed before production payments are enabled.</label><label className="checkbox-row"><input type="checkbox" checked={accepted.privacy} onChange={(event) => setAccepted({ ...accepted, privacy: event.target.checked })} /> Card, UPI and banking credentials are handled inside the secure checkout and are not stored by Delight Banking.</label><button className="primary-button full" type="button" disabled={!canPay} onClick={pay}>Pay Securely</button><p className="setup-note">You will enter card, UPI or banking details only inside the secure checkout.</p>{message && <p className={`form-message ${status}`}>{message}</p>}</article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={(nextUser) => { setUser(nextUser); setProfile(getUserProfile(nextUser.email)); }} />}</Shell>;
 }
 
-function PaymentStatusPage({ orderId }) {
-  const [user, setUser] = useState(null);
-  const [authMode, setAuthMode] = useState(null);
-  const [order, setOrder] = useState(null);
-  const [message, setMessage] = useState("Verifying payment...");
-  const [timedOut, setTimedOut] = useState(false);
-  useEffect(() => { listenToAuth(setUser); }, []);
-  useEffect(() => {
-    if (!user || !orderId) return;
-    let cancelled = false;
-    let attempts = 0;
-    async function check(useVerify = false) {
-      try {
-        const result = useVerify ? await verifyPayment({ orderId }) : await getOrderStatus(orderId);
-        const nextOrder = result.order || result;
-        if (cancelled) return;
-        setOrder(nextOrder);
-        const nextStatus = result.status || nextOrder.paymentStatus || "pending";
-        if (nextStatus === "paid") { setMessage("Payment successful"); return; }
-        if (["failed", "expired"].includes(nextStatus)) { setMessage("Payment failed"); return; }
-        if (nextStatus === "cancelled") { setMessage("Payment cancelled"); return; }
-        attempts += 1;
-        setMessage("Payment pending");
-        if (attempts >= 10) { setTimedOut(true); return; }
-        window.setTimeout(() => check(false), 4000);
-      } catch (error) {
-        if (!cancelled) setMessage(error.message || "Unable to verify payment");
-      }
-    }
-    check(true);
-    return () => { cancelled = true; };
-  }, [user, orderId]);
-  const status = order?.paymentStatus || "pending";
-  const heading = status === "paid" ? "Payment successful" : status === "failed" || status === "expired" ? "Payment failed" : status === "cancelled" ? "Payment cancelled" : timedOut ? "Unable to verify payment" : "Verifying payment";
-  return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="payment-status-card premium-card"><span className="chip">Payment Verification</span><h1>{heading}</h1>{message && <p className="form-message">{timedOut ? "Payment is still pending. Refresh this page or check again from your dashboard." : message}</p>}{order && <div className="receipt-card" id="receipt"><h2>Payment Receipt</h2><dl className="student-details"><div><dt>Receipt number</dt><dd>{order.internalOrderNumber}</dd></div><div><dt>Student email</dt><dd>{order.userEmail}</dd></div><div><dt>Plan</dt><dd>{order.trustedPlanSnapshot?.name}</dd></div><div><dt>Duration</dt><dd>{order.trustedPlanSnapshot?.durationLabel}</dd></div><div><dt>Amount</dt><dd>{formatPrice(order.amountInRupees || order.amount || (order.amountInPaise / 100))}</dd></div><div><dt>Transaction ID</dt><dd>{order.paymentId || "Pending"}</dd></div><div><dt>Activation</dt><dd>{formatDate(order.accessStartAt)}</dd></div><div><dt>Expiry</dt><dd>{formatDate(order.accessEndAt)}</dd></div><div><dt>Status</dt><dd>{order.paymentStatus}</dd></div></dl><p>Delight Banking. Business/contact details placeholder. This is a payment receipt, not a GST tax invoice.</p></div>}<div className="form-actions"><a className="primary-button" href={`${appBase}student-desk`}>Return to dashboard</a><a className="ghost-button" href={`${appBase}#plans`}>Try again</a></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+function normalizePaymentState(status) {
+  const value = String(status || "pending").toLowerCase();
+  if (value === "paid" || value === "success") return "paid";
+  if (value === "failed") return "failed";
+  if (["cancelled", "canceled", "expired", "user_dropped", "no_payment_attempt"].includes(value)) return "cancelled";
+  return "pending";
 }
+
+function paymentLabel(status) {
+  const value = String(status || "pending").toLowerCase();
+  if (value === "paid" || value === "success") return "Paid";
+  if (value === "failed") return "Failed";
+  if (["cancelled", "canceled", "expired", "user_dropped", "no_payment_attempt"].includes(value)) return "Not Completed";
+  if (value.includes("refund")) return "Refunded";
+  if (value.includes("dispute")) return "Disputed";
+  return "Pending";
+}
+
+const paymentStateContent = {
+  paid: ["Payment Successful", "Your subscription has been activated."],
+  pending: ["Payment Verification in Progress", "We are waiting for confirmation from the payment provider."],
+  failed: ["Payment Failed", "Your payment could not be completed. No subscription has been activated."],
+  cancelled: ["Payment Not Completed", "Your payment was not completed and no subscription has been activated."]
+};
+
+function PaymentStatusPage({ orderId }) {
+  const [authMode, setAuthMode] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [order, setOrder] = useState(null);
+  const [paymentState, setPaymentState] = useState("pending");
+  const [message, setMessage] = useState(orderId ? "Checking payment status..." : "Order id missing.");
+  const [checking, setChecking] = useState(false);
+  const [pollCount, setPollCount] = useState(0);
+  const maxPolls = 6;
+
+  useEffect(() => { listenToAuth((nextUser) => { setUser(nextUser); setAuthReady(true); if (!nextUser) setAuthMode("signin"); }); }, []);
+
+  async function refreshStatus({ manual = false } = {}) {
+    if (!orderId || !user || checking) return;
+    setChecking(true);
+    if (manual) setMessage("Checking payment status...");
+    try {
+      const result = await getOrderStatus(orderId);
+      const nextOrder = result.order || null;
+      const nextState = normalizePaymentState(result.status || nextOrder?.paymentStatus || nextOrder?.orderStatus);
+      setOrder(nextOrder);
+      setPaymentState(nextState);
+      if (nextState === "pending") setMessage(pollCount >= maxPolls ? "Payment confirmation is taking longer than expected." : paymentStateContent.pending[1]);
+      else setMessage(paymentStateContent[nextState][1]);
+    } catch (error) {
+      setMessage(error.message || "Unable to verify payment status.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!authReady || !user || !orderId) return;
+    refreshStatus();
+  }, [authReady, user, orderId]);
+
+  useEffect(() => {
+    if (!user || !orderId || paymentState !== "pending" || checking || pollCount >= maxPolls) return;
+    const timer = window.setTimeout(() => {
+      setPollCount((current) => current + 1);
+      refreshStatus();
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [user, orderId, paymentState, checking, pollCount]);
+
+  const [heading, body] = paymentStateContent[paymentState];
+  const canRetry = paymentState === "failed" || paymentState === "cancelled";
+  const retryVariant = order?.variantId || order?.trustedPlanSnapshot?.variantId;
+
+  return <Shell user={user} onAuth={setAuthMode}><main className="checkout-page"><section className="payment-status-card premium-card"><span className="chip">Payment Verification</span><h1>{orderId ? heading : "Payment Status Unavailable"}</h1><p>{orderId ? body : "We could not find a payment order to verify."}</p>{message && <p className={`form-message ${paymentState === "pending" ? "neutral" : ""}`}>{message}</p>}{checking && <p className="setup-note">Checking with the secure payment server...</p>}{order && <div className="receipt-card" id="receipt"><h2>Payment Receipt</h2><dl className="student-details"><div><dt>Receipt number</dt><dd>{order.internalOrderNumber}</dd></div><div><dt>Student email</dt><dd>{order.userEmail}</dd></div><div><dt>Plan</dt><dd>{order.trustedPlanSnapshot?.name}</dd></div><div><dt>Duration</dt><dd>{order.trustedPlanSnapshot?.durationLabel}</dd></div><div><dt>Amount</dt><dd>{formatPrice(order.amountInRupees || order.amount || (order.amountInPaise / 100))}</dd></div><div><dt>Transaction ID</dt><dd>{order.paymentId || "Not completed"}</dd></div><div><dt>Activation</dt><dd>{formatDate(order.accessStartAt)}</dd></div><div><dt>Expiry</dt><dd>{formatDate(order.accessEndAt)}</dd></div><div><dt>Status</dt><dd>{paymentLabel(order.paymentStatus || paymentState)}</dd></div></dl><p>Delight Banking. Business/contact details placeholder. This is a payment receipt, not a GST tax invoice.</p></div>}<div className="form-actions">{canRetry && retryVariant && <a className="primary-button" href={`${appBase}checkout/${retryVariant}`}>Try Again</a>}{paymentState === "pending" && <button className="primary-button" type="button" disabled={checking} onClick={() => refreshStatus({ manual: true })}>Check Payment Status</button>}<a className="ghost-button" href={`${appBase}#plans`}>Return to Plans</a><a className="ghost-button" href={`${appBase}student-desk`}>Go to Dashboard</a></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+}
+
 function StudentDeskPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
@@ -501,7 +544,7 @@ function SubscriptionList({ title, subscriptions, empty = "No active mentorship 
 }
 
 function PaymentHistory({ payments, orders }) {
-  return <section className="resource-panel"><div className="toolbar"><div><p className="eyebrow">Payment History</p><h2>Transactions</h2></div></div><div className="resource-list">{payments.length ? payments.map((payment) => <article className="resource-item" key={payment.id}><header><div><h3>{payment.cashfreePaymentId || payment.providerPaymentId || payment.id}</h3><p>{formatPrice(payment.amount || (payment.amountInPaise / 100))} paid on {formatDate(payment.capturedAt || payment.createdAt)}</p></div><span className="status-pill">{payment.status}</span></header><div className="meta-row"><span>{payment.currency}</span><span>{payment.paymentMethod || "Secure Payment"}</span><span>{payment.verified ? "Verified" : "Pending"}</span></div><button className="text-button" type="button" onClick={() => window.print()}>Receipt/invoice action</button></article>) : orders.length ? orders.map((order) => <article className="resource-item" key={order.id}><h3>{order.internalOrderNumber}</h3><p>{order.paymentStatus}</p></article>) : <NoPlanText text="No payment history yet." />}</div></section>;
+  return <section className="resource-panel"><div className="toolbar"><div><p className="eyebrow">Payment History</p><h2>Transactions</h2></div></div><div className="resource-list">{payments.length ? payments.map((payment) => <article className="resource-item" key={payment.id}><header><div><h3>{payment.cashfreePaymentId || payment.providerPaymentId || payment.id}</h3><p>{formatPrice(payment.amount || (payment.amountInPaise / 100))} paid on {formatDate(payment.capturedAt || payment.createdAt)}</p></div><span className="status-pill">{paymentLabel(payment.status)}</span></header><div className="meta-row"><span>{payment.currency}</span><span>{payment.paymentMethod || "Secure Payment"}</span><span>{payment.verified ? "Verified" : "Pending"}</span></div><button className="text-button" type="button" onClick={() => window.print()}>Receipt/invoice action</button></article>) : orders.length ? orders.map((order) => <article className="resource-item" key={order.id}><h3>{order.internalOrderNumber}</h3><p>{paymentLabel(order.paymentStatus || order.orderStatus)}</p></article>) : <NoPlanText text="No payment history yet." />}</div></section>;
 }
 
 function ResourceList({ resources, paymentSummary }) {
@@ -770,7 +813,7 @@ function AddAdministratorDialog({ open, onClose, onAdded }) {
     event.preventDefault();
     setLoading(true);
     setMessage("");
-    try { const result = await searchAdminCandidate(email.trim()); setCandidate(result.user); setStep(2); }
+    try { const trimmed = email.trim(); if (!trimmed || !trimmed.includes("@")) throw new Error("Enter a valid exact email address."); const result = await searchAdminCandidate(trimmed); setCandidate(result.user); setStep(2); }
     catch (error) { setMessage(error.message); }
     finally { setLoading(false); }
   }
@@ -792,8 +835,10 @@ function AddAdministratorDialog({ open, onClose, onAdded }) {
     } catch (error) { setMessage(error.message); }
     finally { setLoading(false); }
   }
+  const cannotPromote = candidate && (!candidate.emailVerified || candidate.disabled || candidate.adminStatus === "active");
+  const promoteReason = !candidate ? "" : !candidate.emailVerified ? "Cannot promote: email is not verified." : candidate.disabled ? "Cannot promote: Firebase account is disabled." : candidate.adminStatus === "active" ? "Cannot promote: this user is already an active administrator." : candidate.adminStatus ? `Ready to promote. Previous admin status: ${candidate.adminStatus}.` : "Ready to promote.";
   const permissions = candidate ? limitedAdminRoles.includes(role) ? role === "admin" ? ["users.view", "users.manage", "subscriptions.view", "subscriptions.manage", "payments.view", "plans.view", "resources.manage", "support.manage", "reports.view"] : role === "support" ? ["users.view", "subscriptions.view", "payments.view_limited", "support.manage"] : ["plans.view", "resources.manage", "targets.manage", "classes.manage"] : [] : [];
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="admin-management-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close dialog">x</button><p className="eyebrow">Add Administrator</p><h2>Promote an existing verified user</h2>{step === 1 && <form onSubmit={findCandidate} className="admin-dialog-step"><label>Exact verified email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@example.com" required /></label><button className="primary-button" disabled={loading} type="submit">Find Account</button></form>}{step >= 2 && candidate && <div className="admin-dialog-step"><dl className="student-details"><div><dt>Name</dt><dd>{candidate.displayName}</dd></div><div><dt>Email</dt><dd>{candidate.email}</dd></div><div><dt>Verified</dt><dd>{candidate.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Provider</dt><dd>{candidate.provider}</dd></div><div><dt>Created</dt><dd>{formatDate(candidate.createdAt)}</dd></div><div><dt>Admin status</dt><dd>{candidate.adminStatus || "Not administrator"}</dd></div></dl>{step === 2 && <button className="primary-button" type="button" onClick={() => setStep(3)}>Continue</button>}</div>}{step >= 3 && candidate && <div className="admin-dialog-step"><label>Limited administrator role<select value={role} onChange={(event) => setRole(event.target.value)}>{limitedAdminRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>{step === 3 && <button className="primary-button" type="button" onClick={() => setStep(4)}>Review Permissions</button>}</div>}{step >= 4 && <div className="admin-dialog-step"><h3>Permissions</h3><div className="permission-list">{permissions.map((permission) => <span key={permission}>{permission}</span>)}</div>{step === 4 && <button className="primary-button" type="button" onClick={() => setStep(5)}>Continue to Confirm</button>}</div>}{step === 5 && <div className="admin-dialog-step"><label>Type ADD ADMIN to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>{needsReauth && <div className="admin-reauth-box"><label>Password for email admins<input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} placeholder="Google admins can leave this blank" /></label><button className="ghost-button" type="button" disabled={loading} onClick={refreshAdminSession}>Refresh Session</button></div>}<button className="primary-button" type="button" disabled={loading || confirmation !== "ADD ADMIN"} onClick={submitPromotion}>Grant Access</button></div>}{message && <p className="form-message">{message}</p>}</section></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="admin-management-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close dialog">x</button><p className="eyebrow">Add Administrator</p><h2>Promote an existing verified user</h2>{step === 1 && <form onSubmit={findCandidate} className="admin-dialog-step"><label>Exact verified email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@example.com" required /></label><button className="primary-button" disabled={loading} type="submit">Find Account</button></form>}{step >= 2 && candidate && <div className="admin-dialog-step"><dl className="student-details"><div><dt>Name</dt><dd>{candidate.displayName}</dd></div><div><dt>Email</dt><dd>{candidate.email}</dd></div><div><dt>Verified</dt><dd>{candidate.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Provider</dt><dd>{candidate.provider}</dd></div><div><dt>Created</dt><dd>{formatDate(candidate.createdAt)}</dd></div><div><dt>Admin status</dt><dd>{candidate.adminStatus || "Not administrator"}</dd></div></dl>{promoteReason && <p className={`form-message ${cannotPromote ? "" : "neutral"}`}>{promoteReason}</p>}{step === 2 && !cannotPromote && <button className="primary-button" type="button" onClick={() => setStep(3)}>Continue</button>}</div>}{step >= 3 && candidate && <div className="admin-dialog-step"><label>Limited administrator role<select value={role} onChange={(event) => setRole(event.target.value)}>{limitedAdminRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>{step === 3 && <button className="primary-button" type="button" onClick={() => setStep(4)}>Review Permissions</button>}</div>}{step >= 4 && <div className="admin-dialog-step"><h3>Permissions</h3><div className="permission-list">{permissions.map((permission) => <span key={permission}>{permission}</span>)}</div>{step === 4 && <button className="primary-button" type="button" onClick={() => setStep(5)}>Continue to Confirm</button>}</div>}{step === 5 && <div className="admin-dialog-step"><label>Type ADD ADMIN to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>{needsReauth && <div className="admin-reauth-box"><label>Password for email admins<input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} placeholder="Google admins can leave this blank" /></label><button className="ghost-button" type="button" disabled={loading} onClick={refreshAdminSession}>Refresh Session</button></div>}<button className="primary-button" type="button" disabled={loading || cannotPromote || confirmation !== "ADD ADMIN"} onClick={submitPromotion}>Grant Access</button></div>}{message && <p className="form-message">{message}</p>}</section></div>;
 }
 
 function AdminActionDialog({ action, adminUser, onCancel, onDone }) {
