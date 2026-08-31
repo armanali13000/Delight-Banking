@@ -401,6 +401,7 @@ function friendlyApiError(status, code, message) {
   if (status === 401) return "Your admin session has expired. Please sign in again.";
   if (status === 403) return message || "You do not have permission to manage administrators.";
   if (status === 404) return message || "The requested admin account or API route was not found.";
+  if (status === 405) return "Administrator API method is not configured correctly.";
   if (status === 409) return message || "This user is already an administrator.";
   if (status >= 500) return message || "Administrator access could not be granted. Check the server logs.";
   if (message) return message;
