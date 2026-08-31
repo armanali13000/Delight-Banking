@@ -198,6 +198,13 @@ function routeTo(path) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function SunIcon() {
+  return <svg className="theme-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></svg>;
+}
+
+function MoonIcon() {
+  return <svg className="theme-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.78 9.79Z" /></svg>;
+}
 function Header({ user, onAuth, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -229,7 +236,7 @@ function Header({ user, onAuth, onLogout }) {
         <a href={`${appBase}student-desk`}>Student Desk</a>
       </nav>
       <div className="header-actions">
-        <button className="icon-button theme-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">{theme === "dark" ? "L" : "D"}</button>
+        <button className="icon-button theme-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>{theme === "dark" ? <SunIcon /> : <MoonIcon />}</button>
         {user ? (
           <div className="profile-menu">
             <button className={`profile-button ${savedProfile.photo ? "has-photo" : ""}`} type="button" onClick={() => setProfileOpen(!profileOpen)} aria-expanded={profileOpen} aria-label="Open profile menu">
