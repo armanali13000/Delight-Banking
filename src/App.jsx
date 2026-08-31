@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { load } from "@cashfreepayments/cashfree-js";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
@@ -213,12 +213,37 @@ function SunIcon() {
 function MoonIcon() {
   return <svg className="theme-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.78 9.79Z" /></svg>;
 }
+function ShieldIcon() {
+  return <svg className="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 2.8 8.4 7 10 4.2-1.6 7-5.6 7-10V6l-7-3Z" /><path d="M9.7 12.1 11.2 13.6 14.5 10.3" /></svg>;
+}
+
+function MenuIcon() {
+  return <svg className="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M4 12h16" /><path d="M4 17h16" /></svg>;
+}
+
+function CloseIcon() {
+  return <svg className="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12" /><path d="M18 6 6 18" /></svg>;
+}
+
+const publicNavLinks = [
+  [appBase, "Home"],
+  [`${appBase}#programs`, "Exams"],
+  [`${appBase}about`, "About"],
+  [`${appBase}#strategy`, "Platform"],
+  [`${appBase}#plans`, "Plans"],
+  [`${appBase}#contact`, "Contact"]
+];
+
 function Header({ user, onAuth, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [verifiedAdmin, setVerifiedAdmin] = useState(null);
+  const profileRef = useRef(null);
+  const mobileRef = useRef(null);
   const savedProfile = user?.email ? getUserProfile(user.email) : {};
   const studentName = savedProfile.name || user?.displayName || user?.email?.split("@")[0] || "Student";
+  const isAdmin = Boolean(verifiedAdmin);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -232,33 +257,87 @@ function Header({ user, onAuth, onLogout }) {
     return () => { cancelled = true; };
   }, [user]);
 
+  useEffect(() => {
+    function closeOnEscape(event) {
+      if (event.key === "Escape") { setMobileOpen(false); setProfileOpen(false); }
+    }
+    function closeOnOutside(event) {
+      if (profileRef.current && !profileRef.current.contains(event.target)) setProfileOpen(false);
+      if (mobileOpen && mobileRef.current && !mobileRef.current.contains(event.target)) setMobileOpen(false);
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("mousedown", closeOnOutside);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("mousedown", closeOnOutside);
+    };
+  }, [mobileOpen]);
+
+  useEffect(() => {
+    document.body.classList.toggle("mobile-nav-locked", mobileOpen);
+    return () => document.body.classList.remove("mobile-nav-locked");
+  }, [mobileOpen]);
+
+  function closeMenus() {
+    setMobileOpen(false);
+    setProfileOpen(false);
+  }
+
+  function openAuth(mode) {
+    closeMenus();
+    onAuth(mode);
+  }
+
+  async function logout() {
+    closeMenus();
+    await onLogout();
+  }
+
+  function AccountActions({ mobile = false }) {
+    if (user && isAdmin) {
+      return <div className={mobile ? "mobile-account-actions" : "profile-dropdown"}><div className="profile-summary"><strong>{verifiedAdmin.displayName || studentName}</strong><span>{user.email}</span></div><a className="menu-link" href={`${appBase}admin`} onClick={closeMenus}>Admin Panel</a><a className="menu-link" href={`${appBase}admin/profile`} onClick={closeMenus}>Admin Profile</a><button className="menu-link danger-link" type="button" onClick={logout}>Logout</button></div>;
+    }
+
+    if (user) {
+      return <div className={mobile ? "mobile-account-actions" : "profile-dropdown"}><div className="profile-summary"><strong>{studentName}</strong><span>{user.email}</span></div><a className="menu-link" href={`${appBase}student-desk`} onClick={closeMenus}>Dashboard</a><a className="menu-link" href={`${appBase}student-desk#profile`} onClick={closeMenus}>Profile</a><button className="menu-link danger-link" type="button" onClick={logout}>Logout</button><div className="menu-separator" /><a className="menu-link admin-login-menu-link" href={`${appBase}admin/login`} onClick={closeMenus}><span><ShieldIcon />Admin Login</span></a></div>;
+    }
+
+    return <div className={mobile ? "mobile-account-actions" : "desktop-account-actions"}><button className="ghost-button" type="button" onClick={() => openAuth("signin")}>Login</button><button className="primary-button" type="button" onClick={() => openAuth("signup")}>Create Account</button><div className="menu-separator" /><a className="admin-login-link" href={`${appBase}admin/login`} onClick={closeMenus}><ShieldIcon />Admin Login</a></div>;
+  }
+
   return (
     <header className="site-header">
       <Brand />
-      <nav className="main-nav">
-        <a href={appBase}>Home</a>
-        <a href={`${appBase}#programs`}>Exams</a>
-        <a href={`${appBase}about`}>About</a>
-        <a href={`${appBase}#strategy`}>Strategy</a>
-        <a href={`${appBase}#plans`}>Plans</a>
+      <nav className="main-nav" aria-label="Primary navigation">
+        {publicNavLinks.map(([href, label]) => <a href={href} key={label}>{label}</a>)}
         <a href={`${appBase}student-desk`}>Student Desk</a>
       </nav>
       <div className="header-actions">
         <button className="icon-button theme-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>{theme === "dark" ? <SunIcon /> : <MoonIcon />}</button>
         {user ? (
-          <div className="profile-menu">
+          <div className="profile-menu" ref={profileRef}>
             <button className={`profile-button ${savedProfile.photo ? "has-photo" : ""}`} type="button" onClick={() => setProfileOpen(!profileOpen)} aria-expanded={profileOpen} aria-label="Open profile menu">
               {savedProfile.photo && <img src={savedProfile.photo} alt="" />}
               <span className="profile-initial">{studentName.slice(0, 1).toUpperCase()}</span>
             </button>
-            {profileOpen && <div className="profile-dropdown"><div className="profile-summary"><strong>{studentName}</strong><span>{user.email}</span></div><a className="menu-link" href={`${appBase}student-desk`}>Student Desk</a>{verifiedAdmin && <a className="menu-link" href={`${appBase}admin`}>Admin Panel</a>}<button className="menu-link danger-link" type="button" onClick={onLogout}>Logout</button></div>}
+            {profileOpen && <AccountActions />}
           </div>
-        ) : <><button className="ghost-button" type="button" onClick={() => onAuth("signin")}>Login</button><button className="primary-button" type="button" onClick={() => onAuth("signup")}>Start</button></>}
+        ) : <AccountActions />}
+        <button className="icon-button mobile-menu-button" type="button" aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={mobileOpen} aria-controls="mobile-site-menu" onClick={() => setMobileOpen(!mobileOpen)}>{mobileOpen ? <CloseIcon /> : <MenuIcon />}</button>
+      </div>
+      <div className={`mobile-nav-backdrop ${mobileOpen ? "open" : ""}`} aria-hidden={!mobileOpen}>
+        <aside className="mobile-nav-panel" id="mobile-site-menu" ref={mobileRef} aria-label="Mobile navigation">
+          <div className="mobile-nav-head"><Brand small="Menu" /><button className="icon-button" type="button" aria-label="Close navigation menu" onClick={closeMenus}><CloseIcon /></button></div>
+          <nav className="mobile-nav-links" aria-label="Mobile primary navigation">
+            {publicNavLinks.map(([href, label]) => <a href={href} key={label} onClick={closeMenus}>{label}</a>)}
+            <a href={`${appBase}student-desk`} onClick={closeMenus}>Student Desk</a>
+          </nav>
+          <div className="mobile-account-section"><span className="menu-label">Account</span><AccountActions mobile /></div>
+        </aside>
       </div>
     </header>
   );
 }
-
 function Shell({ user, onAuth, onLogout, children }) {
   async function fallbackLogout() { await signOutUser(); window.location.reload(); }
   return <><Header user={user} onAuth={onAuth} onLogout={onLogout || fallbackLogout} />{children}<Footer /></>;
@@ -280,7 +359,6 @@ function PlanCard({ plan, ownedVariants = new Set() }) {
         {plan.variants.map((variant) => <button className={variant.variantId === selected.variantId ? "active" : ""} key={variant.variantId} type="button" role="radio" aria-checked={variant.variantId === selected.variantId} onClick={() => setSelectedId(variant.variantId)}><strong>{variant.durationLabel}</strong><span>{formatPrice(variant.priceInRupees)}</span></button>)}
       </div>
       <div className="plan-price-row"><div className="price">{formatPrice(selected.priceInRupees)}</div><span className="status-pill">Validity: {selected.durationLabel}</span></div>
-      {plan.planId === "personal-coaching" && <div className="plan-mentor-mini"><img src={mentorPhotoPath} width="72" height="72" loading="lazy" alt="Imran Sir, banking examination mentor at Delight Banking" /><div><strong>Imran Sir</strong><span>Banking Examination Mentor</span></div></div>}
       <ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul>
       <div className="form-actions"><button className="primary-button full" type="button" onClick={() => routeTo(`${appBase}checkout/${selected.variantId}`)}>{ownsVariant ? "Renew Plan" : "Choose Plan"}</button><a className="ghost-button full" href={`${appBase}checkout/${selected.variantId}`}>View Details</a></div>
     </article>
@@ -387,9 +465,10 @@ function StudentDeskPage() {
   const [profile, setProfile] = useState({});
   const [profileMessage, setProfileMessage] = useState("");
   const [paymentSummary, setPaymentSummary] = useState({ subscriptions: [], payments: [], orders: [] });
-  const [deskView, setDeskView] = useState("dashboard");
+  const [deskView, setDeskView] = useState(() => window.location.hash === "#profile" ? "profile" : "dashboard");
   const [tracking, setTracking] = useState(getStudyTracking(""));
   useEffect(() => { listenToAuth((nextUser) => { setUser(nextUser); setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {}); setTracking(nextUser?.email ? getStudyTracking(nextUser.email) : getStudyTracking("")); setAuthReady(true); }); getResources().then(setResources); }, []);
+  useEffect(() => { const syncHashView = () => { if (window.location.hash === '#profile') setDeskView('profile'); }; syncHashView(); window.addEventListener('hashchange', syncHashView); return () => window.removeEventListener('hashchange', syncHashView); }, []);
   useEffect(() => { if (user) refreshPayments(); }, [user]);
   async function refreshPayments() { setPaymentSummary(await getPaymentSummary()); }
   async function logout() { await signOutUser(); setUser(null); setPaymentSummary({ subscriptions: [], payments: [], orders: [] }); }
@@ -561,29 +640,82 @@ function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState("Checking admin session...");
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribeAuth = null;
+    listenToAuth(async (currentUser) => {
+      if (cancelled) return;
+      if (!currentUser) {
+        setCheckingSession(false);
+        setMessage("");
+        setAccessDenied(false);
+        return;
+      }
+      try {
+        await getAdminMe({ forceRefresh: true, logAccess: true });
+        if (!cancelled) routeTo(`${appBase}admin`);
+      } catch {
+        if (!cancelled) {
+          setCheckingSession(false);
+          setAccessDenied(true);
+          setMessage("This account does not have administrative access.");
+        }
+      }
+    }).then((unsubscribe) => {
+      unsubscribeAuth = unsubscribe;
+      if (cancelled && typeof unsubscribeAuth === "function") unsubscribeAuth();
+    });
+    return () => {
+      cancelled = true;
+      if (typeof unsubscribeAuth === "function") unsubscribeAuth();
+    };
+  }, []);
+
   async function finishLogin(action) {
     setLoading(true);
+    setAccessDenied(false);
     setMessage("");
     try {
       await action();
       await getAdminMe({ forceRefresh: true, logAccess: true });
       routeTo(`${appBase}admin`);
-    } catch (error) {
-      await signOutUser().catch(() => {});
-      setMessage(error.message === "Login required." ? "This account does not have administrative access." : error.message || "This account does not have administrative access.");
+    } catch {
+      setAccessDenied(true);
+      setMessage("This account does not have administrative access.");
     } finally {
       setLoading(false);
+      setCheckingSession(false);
     }
   }
+
+  async function useDifferentAccount() {
+    setLoading(true);
+    setMessage("");
+    try {
+      await signOutUser();
+      setAccessDenied(false);
+      setEmail("");
+      setPassword("");
+    } catch (error) {
+      setMessage(error.message || "Could not sign out. Try again.");
+    } finally {
+      setLoading(false);
+      setCheckingSession(false);
+    }
+  }
+
   async function forgotPassword() {
     setMessage("");
     try { await resetPassword(email.trim()); setMessage("Password reset link sent if the email exists."); } catch (error) { setMessage(error.message); }
   }
-  return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Secure Administration</p><h1>Delight Banking Admin</h1><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label><label>Password<div className="password-row"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "Hide" : "Show"}</button></div></label><button className="primary-button full" type="button" disabled={loading} onClick={() => finishLogin(() => signInWithEmail(email.trim(), password, "signin"))}>{loading ? "Checking access..." : "Login"}</button><button className="google-button full" type="button" disabled={loading} onClick={() => finishLogin(signInWithGoogle)}><span>G</span>Continue with Google</button><div className="auth-links"><button className="text-button" type="button" onClick={forgotPassword}>Forgot password?</button><a className="text-button" href={appBase}>Back to website</a></div>{message && <p className="form-message">{message === "This account does not have administrative access." ? message : "This account does not have administrative access."}</p>}</section></main>;
-}
 
+  return <main className="admin-login-page"><section className="admin-login-panel"><Brand small="Admin Portal" /><p className="eyebrow">Secure Administration</p><h1>Delight Banking Admin</h1>{checkingSession ? <p className="form-message neutral">Checking admin authorization...</p> : <><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label><label>Password<div className="password-row"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "Hide" : "Show"}</button></div></label><button className="primary-button full" type="button" disabled={loading} onClick={() => finishLogin(() => signInWithEmail(email.trim(), password, "signin"))}>{loading ? "Checking access..." : "Login"}</button><button className="google-button full" type="button" disabled={loading} onClick={() => finishLogin(() => signInWithGoogle({ selectAccount: true }))}><span>G</span>Continue with Google</button><div className="auth-links"><button className="text-button" type="button" onClick={forgotPassword}>Forgot password?</button><a className="text-button" href={appBase}>Back to website</a></div>{message && <p className={`form-message ${accessDenied ? "" : "neutral"}`}>{message}</p>}{accessDenied && <div className="admin-login-actions"><button className="ghost-button full" type="button" disabled={loading} onClick={useDifferentAccount}>Use a Different Account</button><a className="ghost-button full" href={`${appBase}student-desk`}>Return to Student Dashboard</a></div>}</>}</section></main>;
+}
 function AdminOverview({ admin }) {
   const roadmap = ["Secure roles and profile foundation", "Phase 2 analytics and operational modules", "Future role management and audit workflows"];
   return <><AdminPageHeader eyebrow="Overview" title={`Welcome, ${admin.displayName}`} description="The admin foundation is active. Analytics and operations modules will be added in later phases." admin={admin} /><div className="admin-foundation-grid"><article><span>Account status</span><strong>{admin.status}</strong></article><article><span>Secure session</span><strong>Verified</strong></article><article><span>Profile</span><a className="ghost-button" href={`${appBase}admin/profile`}>Open profile</a></article></div><section className="admin-card"><h2>Phase roadmap</h2>{roadmap.map((item) => <p key={item}>{item}</p>)}</section><section className="admin-card"><h2>Security notice</h2><p>Admin access is verified with Firebase custom claims and the server-side adminUsers record. Protected content is not rendered until authorization completes.</p></section><div className="admin-placeholder-grid"><AdminEmptyState title="Analytics" /><AdminEmptyState title="Users" /><AdminEmptyState title="Payments" /></div></>;
@@ -759,7 +891,7 @@ function AdminPage({ path }) {
   return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={administratorDetailMatch ? "/admin/administrators" : path}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={(adminNavItems.find(([itemPath]) => itemPath === path)?.[1]) || "Admin Module"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
-  return <footer className="site-footer"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
+  return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
 }
 
 export default function App() {

@@ -2141,38 +2141,6 @@ body.admin-drawer-open {
 [data-theme="light"] .mentor-feature-grid span {
   background: rgba(18, 21, 25, 0.04);
 }
-
-.plan-mentor-mini {
-  display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: center;
-  margin: 0.5rem 0 1rem;
-  padding: 0.7rem;
-  border: 1px solid rgba(255, 102, 117, 0.24);
-  border-radius: 8px;
-  background: rgba(210, 31, 50, 0.08);
-}
-
-.plan-mentor-mini img {
-  width: 4.5rem;
-  height: 4.5rem;
-  border-radius: 8px;
-  object-fit: cover;
-  object-position: 50% 36%;
-}
-
-.plan-mentor-mini strong,
-.plan-mentor-mini span {
-  display: block;
-}
-
-.plan-mentor-mini span {
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
 .about-detail-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   padding-top: 0;
@@ -2430,5 +2398,192 @@ body.admin-drawer-open {
   .admin-mobile-list {
     display: grid;
     padding: 0;
+  }
+}
+
+/* Public navigation and admin-login flow fixes */
+.menu-icon,
+.theme-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.desktop-account-actions,
+.mobile-account-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.admin-login-link,
+.admin-login-menu-link span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.admin-login-link {
+  min-height: 2.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 900;
+  padding: 0.55rem 0.75rem;
+}
+
+.admin-login-link:hover,
+.admin-login-menu-link:hover {
+  color: var(--ink);
+  border-color: rgba(255, 102, 117, 0.45);
+}
+
+.menu-separator {
+  width: 1px;
+  height: 1.9rem;
+  background: var(--line);
+}
+
+.profile-dropdown .menu-separator,
+.mobile-account-actions .menu-separator {
+  width: 100%;
+  height: 1px;
+}
+
+.mobile-menu-button,
+.mobile-nav-backdrop {
+  display: none;
+}
+
+.mobile-nav-head,
+.mobile-nav-links,
+.mobile-account-section,
+.admin-login-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.mobile-nav-head {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.mobile-nav-links a {
+  min-height: 2.9rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 900;
+  padding: 0.8rem 0;
+}
+
+.mobile-account-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.mobile-account-actions .primary-button,
+.mobile-account-actions .ghost-button,
+.mobile-account-actions .admin-login-link {
+  justify-content: center;
+  width: 100%;
+}
+
+.admin-login-actions {
+  margin-top: 0.3rem;
+}
+
+.form-message.neutral {
+  color: var(--muted);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(255, 102, 117, 0.55);
+  outline-offset: 3px;
+}
+
+body.mobile-nav-locked {
+  overflow: hidden;
+}
+
+@media (max-width: 1050px) {
+  .site-header {
+    flex-wrap: nowrap;
+  }
+
+  .main-nav,
+  .desktop-account-actions,
+  .profile-menu {
+    display: none;
+  }
+
+  .header-actions {
+    margin-left: auto;
+  }
+
+  .mobile-menu-button {
+    display: grid;
+  }
+
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: block;
+    visibility: hidden;
+    background: rgba(0, 0, 0, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, visibility 180ms ease;
+  }
+
+  .mobile-nav-backdrop.open {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-nav-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: grid;
+    align-content: start;
+    gap: 1rem;
+    width: min(24rem, 88vw);
+    max-width: calc(100vw - 1rem);
+    height: 100dvh;
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    padding: 1rem;
+    transform: translateX(105%);
+    transition: transform 220ms ease;
+  }
+
+  .mobile-nav-backdrop.open .mobile-nav-panel {
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 430px) {
+  .mobile-nav-panel {
+    width: min(21rem, 92vw);
+  }
+
+  .site-header .brand strong {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }

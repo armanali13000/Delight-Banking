@@ -76,13 +76,14 @@ export async function listenToAuth(callback) {
   });
 }
 
-export async function signInWithGoogle() {
+export async function signInWithGoogle(options = {}) {
   const fb = await getFirebase();
   if (!fb) {
     throw new Error("Google login needs Firebase setup first. Add Firebase keys in src/config.js.");
   }
 
   const provider = new fb.authModule.GoogleAuthProvider();
+  if (options.selectAccount) provider.setCustomParameters({ prompt: "select_account" });
   const result = await fb.authModule.signInWithPopup(fb.auth, provider);
   rememberStudent(result.user);
   return result.user;
