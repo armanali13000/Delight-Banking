@@ -34,6 +34,9 @@ import {
 } from "../server/_lib/adminManagement.js";
 import {
   createUploadSession,
+  deleteAdminClass,
+  deleteAdminResource,
+  deleteAdminTarget,
   duplicateAdminResource,
   getAdminClass,
   getAdminResource,
@@ -45,7 +48,8 @@ import {
   saveAdminResource,
   saveAdminTarget,
   setAdminClassStatus,
-  setAdminResourceStatus
+  setAdminResourceStatus,
+  setAdminTargetStatus
 } from "../server/_lib/content.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 
@@ -72,12 +76,24 @@ const ACTIONS = new Set([
   "schedule_resource",
   "unpublish_resource",
   "archive_resource",
+  "restore_resource",
+  "delete_resource",
   "create_upload_session",
   "save_target",
+  "publish_target",
+  "unpublish_target",
+  "archive_target",
+  "restore_target",
+  "complete_target",
+  "delete_target",
   "save_class",
+  "publish_class",
+  "unpublish_class",
   "cancel_class",
   "record_class",
-  "archive_class"
+  "archive_class",
+  "restore_class",
+  "delete_class"
 ]);
 
 function cleanText(value, max = 240) {
@@ -260,15 +276,23 @@ async function handlePost(req, res) {
   if (action === "duplicate_resource") return sendJson(res, 200, await duplicateAdminResource(admin, cleanText(body.resourceId, 240)));
   if (["publish_resource", "schedule_resource", "unpublish_resource", "archive_resource"].includes(action)) {
     const nextStatus = action === "publish_resource" ? "published" : action === "schedule_resource" ? "scheduled" : action.replace("_resource", "");
-    return sendJson(res, 200, await setAdminResourceStatus(admin, cleanText(body.resourceId, 240), nextStatus));
+    return sendJson(res, 200, await setAdminResourceStatus(admin, cleanText(body.resourceId, 240), nextStatus, body));
   }
+  if (action === "restore_resource") return sendJson(res, 200, await setAdminResourceStatus(admin, cleanText(body.resourceId, 240), "draft", body));
+  if (action === "delete_resource") return sendJson(res, 200, await deleteAdminResource(admin, cleanText(body.resourceId, 240), body));
   if (action === "create_upload_session") return sendJson(res, 200, await createUploadSession(admin, body));
   if (action === "save_target") return sendJson(res, 200, await saveAdminTarget(admin, body));
-  if (action === "save_class") return sendJson(res, 200, await saveAdminClass(admin, body));
-  if (["cancel_class", "record_class", "archive_class"].includes(action)) {
-    const nextStatus = action === "cancel_class" ? "cancelled" : action === "record_class" ? "recorded" : "archived";
-    return sendJson(res, 200, await setAdminClassStatus(admin, cleanText(body.classId, 240), nextStatus));
+  if (["publish_target", "unpublish_target", "archive_target", "restore_target", "complete_target"].includes(action)) {
+    const nextStatus = action === "publish_target" ? "published" : action === "restore_target" ? "draft" : action === "complete_target" ? "completed" : action.replace("_target", "");
+    return sendJson(res, 200, await setAdminTargetStatus(admin, cleanText(body.targetId, 240), nextStatus, body));
   }
+  if (action === "delete_target") return sendJson(res, 200, await deleteAdminTarget(admin, cleanText(body.targetId, 240), body));
+  if (action === "save_class") return sendJson(res, 200, await saveAdminClass(admin, body));
+  if (["publish_class", "unpublish_class", "cancel_class", "record_class", "archive_class", "restore_class"].includes(action)) {
+    const nextStatus = action === "publish_class" ? "published" : action === "unpublish_class" ? "unpublished" : action === "cancel_class" ? "cancelled" : action === "record_class" ? "recorded" : action === "restore_class" ? "draft" : "archived";
+    return sendJson(res, 200, await setAdminClassStatus(admin, cleanText(body.classId, 240), nextStatus, body));
+  }
+  if (action === "delete_class") return sendJson(res, 200, await deleteAdminClass(admin, cleanText(body.classId, 240), body));
   badRequest("Invalid admin API action.");
 }
 
@@ -283,6 +307,11 @@ export default async function handler(req, res) {
     handleError(res, error);
   }
 }
+
+
+
+
+
 
 
 

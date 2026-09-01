@@ -639,9 +639,13 @@ export async function duplicateAdminResource(id) {
   return adminPost("duplicate_resource", { resourceId: id });
 }
 
-export async function setAdminResourceStatus(id, status) {
-  const action = status === "published" ? "publish_resource" : status === "scheduled" ? "schedule_resource" : `${status}_resource`;
-  return adminPost(action, { resourceId: id });
+export async function setAdminResourceStatus(id, status, payload = {}) {
+  const action = status === "published" ? "publish_resource" : status === "scheduled" ? "schedule_resource" : status === "draft" ? "restore_resource" : `${status}_resource`;
+  return adminPost(action, { resourceId: id, ...payload });
+}
+
+export async function deleteAdminResource(id, payload = {}) {
+  return adminPost("delete_resource", { resourceId: id, ...payload });
 }
 
 export async function createResourceUploadSession(file, payload = {}) {
@@ -687,9 +691,22 @@ export async function saveAdminClass(payload) {
   return adminPost("save_class", payload);
 }
 
-export async function setAdminClassStatus(id, status) {
-  const action = status === "cancelled" ? "cancel_class" : status === "recorded" ? "record_class" : "archive_class";
-  return adminPost(action, { classId: id });
+export async function setAdminTargetStatus(id, status, payload = {}) {
+  const action = status === "published" ? "publish_target" : status === "unpublished" ? "unpublish_target" : status === "archived" ? "archive_target" : status === "completed" ? "complete_target" : "restore_target";
+  return adminPost(action, { targetId: id, ...payload });
+}
+
+export async function deleteAdminTarget(id, payload = {}) {
+  return adminPost("delete_target", { targetId: id, ...payload });
+}
+
+export async function setAdminClassStatus(id, status, payload = {}) {
+  const action = status === "published" ? "publish_class" : status === "unpublished" ? "unpublish_class" : status === "cancelled" ? "cancel_class" : status === "recorded" ? "record_class" : status === "draft" ? "restore_class" : "archive_class";
+  return adminPost(action, { classId: id, ...payload });
+}
+
+export async function deleteAdminClass(id, payload = {}) {
+  return adminPost("delete_class", { classId: id, ...payload });
 }
 
 function studentContentPath(resource, params = {}) {
@@ -810,6 +827,8 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
+
 
 
 

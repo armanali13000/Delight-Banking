@@ -4,9 +4,9 @@ import { hasPermission, writeAdminActivityLog } from "./adminAuth.js";
 import { getVariant, plans } from "./plans.js";
 
 const RESOURCE_TYPES = new Set(["pdf", "image", "external_link", "video"]);
-const RESOURCE_STATUS = new Set(["draft", "scheduled", "published", "unpublished", "archived"]);
-const CLASS_STATUS = new Set(["upcoming", "live", "recorded", "cancelled", "archived"]);
-const TARGET_STATUS = new Set(["draft", "scheduled", "published", "archived"]);
+const RESOURCE_STATUS = new Set(["draft", "scheduled", "published", "unpublished", "archived", "deleted"]);
+const CLASS_STATUS = new Set(["draft", "published", "upcoming", "live", "recorded", "unpublished", "cancelled", "archived", "deleted"]);
+const TARGET_STATUS = new Set(["draft", "scheduled", "published", "unpublished", "completed", "archived", "deleted"]);
 const PRIVATE_PREFIX = "protected-resources";
 
 function fail(statusCode, message, code = "CONTENT_ERROR") {
@@ -80,7 +80,7 @@ function isNowPublished(data = {}) {
 }
 
 function isStudentVisible(collection, data = {}) {
-  if (collection === "classes") return ["upcoming", "live", "recorded"].includes(data.status || "upcoming");
+  if (collection === "classes") return ["published", "upcoming", "live", "recorded"].includes(data.status || "draft");
   return isNowPublished(data);
 }
 
@@ -89,12 +89,16 @@ function assertAnyPermission(admin, permissions) {
   fail(403, "This administrator role cannot manage learning content.", "PERMISSION_DENIED");
 }
 
-function assertView(admin) {
-  assertAnyPermission(admin, ["resources.view", "resources.manage", "super_admin"]);
+function assertView(admin, permission = "resources.view") {
+  assertAnyPermission(admin, [permission, permission.replace(".view", ".manage")]);
 }
 
-function assertManage(admin, extras = []) {
-  assertAnyPermission(admin, ["resources.manage", ...extras]);
+function assertManage(admin, permission = "resources.manage") {
+  assertAnyPermission(admin, [permission]);
+}
+
+function assertSuperAdmin(admin) {
+  if (admin?.role !== "super_admin") fail(403, "Only a super administrator can permanently delete content.", "SUPER_ADMIN_REQUIRED");
 }
 
 function sanitizeResource(id, data = {}, { includePrivate = true, entitlement = null } = {}) {
@@ -108,16 +112,18 @@ function sanitizeResource(id, data = {}, { includePrivate = true, entitlement = 
     description: cleanText(data.description, 900),
     type,
     status,
-    accessScope: data.accessScope === "public" ? "public" : "plan",
+    accessScope: data.accessScope === "public" ? "public" : data.accessScope === "all_plans" ? "all_plans" : "plan",
     planIds: assignments.planIds,
     variantIds: assignments.variantIds,
     planLabels: planLabels(assignments.planIds, assignments.variantIds),
     tags: listValue(data.tags),
     targetExams: listValue(data.targetExams),
     publishAt: iso(data.publishAt),
+    publishedAt: iso(data.publishedAt),
     expiresAt: iso(data.expiresAt),
     createdAt: iso(data.createdAt),
     updatedAt: iso(data.updatedAt),
+    deletedAt: iso(data.deletedAt),
     createdBy: data.createdBy || "",
     updatedBy: data.updatedBy || "",
     fileName: cleanText(data.fileName, 240),
@@ -152,6 +158,7 @@ function sanitizeTarget(id, data = {}, { includePrivate = true } = {}) {
     planLabels: planLabels(assignments.planIds, assignments.variantIds),
     createdAt: iso(data.createdAt),
     updatedAt: iso(data.updatedAt),
+    deletedAt: iso(data.deletedAt),
     createdBy: includePrivate ? data.createdBy || "" : undefined,
     updatedBy: includePrivate ? data.updatedBy || "" : undefined
   };
@@ -159,11 +166,11 @@ function sanitizeTarget(id, data = {}, { includePrivate = true } = {}) {
 
 function sanitizeClass(id, data = {}, { includePrivate = true } = {}) {
   const assignments = planAssignments(data);
-  const status = CLASS_STATUS.has(data.status) ? data.status : "upcoming";
+  const status = CLASS_STATUS.has(data.status) ? data.status : "draft";
   const start = toDate(data.startAt);
   const end = toDate(data.endAt);
   const now = Date.now();
-  const canJoin = includePrivate && (status === "live" || (status === "upcoming" && start && Math.abs(now - start.getTime()) <= 30 * 60 * 1000));
+  const canJoin = includePrivate && (status === "live" || status === "published" || (status === "upcoming" && start && Math.abs(now - start.getTime()) <= 30 * 60 * 1000));
   return {
     id,
     classId: id,
@@ -175,18 +182,57 @@ function sanitizeClass(id, data = {}, { includePrivate = true } = {}) {
     endAt: iso(end),
     host: cleanText(data.host || "Imran Sir", 120),
     meetingUrl: includePrivate && canJoin ? safeHttpsUrl(data.meetingUrl) : "",
-    recordedVideoUrl: includePrivate && (status === "recorded" || status === "live") ? safeHttpsUrl(data.recordedVideoUrl) : "",
+    recordedVideoUrl: includePrivate && ["recorded", "published", "live"].includes(status) ? safeHttpsUrl(data.recordedVideoUrl) : "",
     planIds: assignments.planIds,
     variantIds: assignments.variantIds,
     planLabels: planLabels(assignments.planIds, assignments.variantIds),
     createdAt: iso(data.createdAt),
     updatedAt: iso(data.updatedAt),
+    deletedAt: iso(data.deletedAt),
     canJoin: Boolean(canJoin),
     createdBy: includePrivate ? data.createdBy || "" : undefined,
     updatedBy: includePrivate ? data.updatedBy || "" : undefined
   };
 }
 
+
+function hasPlanAssignment(data = {}) {
+  return listValue(data.planIds).length > 0 || listValue(data.variantIds).length > 0 || data.accessScope === "all_plans";
+}
+
+function validateResourceForPublish(data = {}) {
+  if (!cleanText(data.title)) fail(400, "Resource title is required before publishing.", "INVALID_RESOURCE");
+  if (!cleanText(data.description)) fail(400, "Add a description or summary before publishing.", "INVALID_RESOURCE_DESCRIPTION");
+  if (!RESOURCE_TYPES.has(data.type)) fail(400, "Select a valid resource type.", "INVALID_RESOURCE_TYPE");
+  if (data.accessScope !== "public" && !hasPlanAssignment(data)) fail(400, "Assign at least one plan.", "MISSING_PLAN_ASSIGNMENT");
+  if (["pdf", "image"].includes(data.type) && !cleanText(data.storagePath)) fail(400, `Upload a ${data.type === "pdf" ? "PDF" : "image"} file before publishing.`, "MISSING_RESOURCE_FILE");
+  if (["external_link", "video"].includes(data.type) && !safeHttpsUrl(data.externalUrl || data.videoUrl)) fail(400, "Add a valid HTTPS content URL before publishing.", "INVALID_RESOURCE_URL");
+}
+
+function validateTargetForPublish(data = {}) {
+  if (!cleanText(data.title)) fail(400, "Target title is required before publishing.", "INVALID_TARGET");
+  if (!["daily", "weekly"].includes(data.cadence)) fail(400, "Select daily or weekly cadence.", "INVALID_TARGET_CADENCE");
+  if (!hasPlanAssignment(data)) fail(400, "Assign at least one plan.", "MISSING_PLAN_ASSIGNMENT");
+  if (!Array.isArray(data.tasks) || data.tasks.filter((task) => cleanText(task.title || task)).length < 1) fail(400, "Add at least one task.", "MISSING_TARGET_TASKS");
+  const start = toDate(data.startAt || data.weekStart || data.targetDate);
+  const due = toDate(data.dueAt || data.endAt || data.targetDate);
+  if (!start) fail(400, "Select a valid start date.", "INVALID_TARGET_START");
+  if (!due) fail(400, "Select a valid due date.", "INVALID_TARGET_DUE");
+  if (due.getTime() < start.getTime()) fail(400, "The due date cannot be before the start date.", "INVALID_TARGET_DATE_RANGE");
+}
+
+function validateClassForPublish(data = {}) {
+  if (!cleanText(data.title)) fail(400, "Class title is required before publishing.", "INVALID_CLASS");
+  if (!hasPlanAssignment(data)) fail(400, "Assign at least one plan.", "MISSING_PLAN_ASSIGNMENT");
+  if (data.mode === "recorded") {
+    if (!cleanText(data.description)) fail(400, "Add a class summary before publishing.", "INVALID_CLASS_DESCRIPTION");
+    if (!safeHttpsUrl(data.recordedVideoUrl)) fail(400, "Add a valid HTTPS recorded video URL before publishing.", "INVALID_CLASS_VIDEO");
+    return;
+  }
+  if (!toDate(data.startAt)) fail(400, "Select a valid class start date and time.", "INVALID_CLASS_START");
+  if (!cleanText(data.timezone || "Asia/Kolkata")) fail(400, "Select a valid timezone.", "INVALID_CLASS_TIMEZONE");
+  if (!safeHttpsUrl(data.meetingUrl)) fail(400, "Add a secure meeting URL before publishing.", "INVALID_CLASS_MEETING_URL");
+}
 async function collectActiveEntitlements(uid) {
   const db = getDb();
   const snap = await db.collection("subscriptions").where("userId", "==", uid).where("status", "==", "active").limit(100).get();
@@ -205,6 +251,7 @@ async function collectActiveEntitlements(uid) {
 
 function hasEntitlement(item, entitlements) {
   if (item.accessScope === "public") return { allowed: true, reason: "public" };
+  if (item.accessScope === "all_plans" && entitlements.hasActiveAccess) return { allowed: true, reason: "all_plans" };
   const planIds = listValue(item.planIds);
   const variantIds = listValue(item.variantIds);
   if (!planIds.length && !variantIds.length) return { allowed: false, reason: "unassigned" };
@@ -222,9 +269,10 @@ async function getDocOr404(collection, id, label) {
 function applyQuery(list, query = {}) {
   const status = cleanText(query.status, 80);
   const type = cleanText(query.type, 80);
-  const planId = cleanText(query.planId, 80);
-  const search = cleanText(query.search, 160).toLowerCase();
+  const planId = cleanText(query.planId || query.plan, 80);
+  const search = cleanText(query.search || query.q, 160).toLowerCase();
   return list.filter((item) => {
+    if (!status && ["archived", "deleted"].includes(item.status)) return false;
     if (status && item.status !== status) return false;
     if (type && item.type !== type && item.cadence !== type && item.mode !== type) return false;
     if (planId && !(item.planIds || []).includes(planId) && !(item.variantIds || []).some((variantId) => getVariant(variantId)?.plan.planId === planId)) return false;
@@ -236,7 +284,45 @@ function applyQuery(list, query = {}) {
 async function listCollection(collection, sanitizer, query = {}, options = {}) {
   const snap = await getDb().collection(collection).orderBy("updatedAt", "desc").limit(200).get();
   const items = applyQuery(snap.docs.map((doc) => sanitizer(doc.id, doc.data(), options)), query);
-  return { items, total: items.length, page: 1, pageSize: items.length };
+  return { items, total: items.length, page: 1, pageSize: items.length, hasMore: false };
+}
+
+
+async function logContentAction(admin, action, entityType, entityId, data, previousStatus, newStatus, reason = "") {
+  await writeAdminActivityLog({ admin, action, entityType, entityId, safeMetadata: { title: cleanText(data?.title, 180), previousStatus: previousStatus || "", newStatus: newStatus || "", reason: cleanText(reason, 400) } });
+}
+
+async function setStatus({ admin, collection, id, label, permission, statuses, sanitizer, status, validatePublish, reason = "" }) {
+  assertManage(admin, permission);
+  if (!statuses.has(status)) fail(400, `Unsupported ${label} status.`, "INVALID_STATUS");
+  const doc = await getDocOr404(collection, id, label);
+  const data = doc.data();
+  if (data.status === "deleted" && status !== "draft") fail(409, `Restore this ${label} before changing its status.`, "DELETED_CONTENT");
+  if (status === "published") validatePublish({ ...data, status });
+  const previousStatus = data.status || "draft";
+  const payload = { status, previousStatus, updatedAt: serverTimestamp(), updatedBy: admin.uid };
+  if (status === "published" && !data.publishedAt) payload.publishedAt = serverTimestamp();
+  if (status === "draft") payload.restoredAt = serverTimestamp();
+  await doc.ref.set(payload, { merge: true });
+  await logContentAction(admin, `${label}.${status === "draft" ? "restore" : status}`, label, doc.id, data, previousStatus, status, reason);
+  const saved = await doc.ref.get();
+  return { [label === "class" ? "classSession" : label]: sanitizer(saved.id, saved.data(), { includePrivate: true }) };
+}
+
+async function softDelete({ admin, collection, id, label, permission, sanitizer, reason = "" }) {
+  assertManage(admin, permission);
+  const doc = await getDocOr404(collection, id, label);
+  const data = doc.data();
+  const previousStatus = data.status || "draft";
+  const payload = { status: "deleted", previousStatus, deletedAt: serverTimestamp(), deletedBy: admin.uid, updatedAt: serverTimestamp(), updatedBy: admin.uid };
+  if (label === "target") {
+    const progress = await getDb().collection("targetProgress").where("targetId", "==", doc.id).limit(1).get().catch(() => ({ empty: true }));
+    payload.progressExists = !progress.empty;
+  }
+  await doc.ref.set(payload, { merge: true });
+  await logContentAction(admin, `${label}.delete`, label, doc.id, data, previousStatus, "deleted", reason);
+  const saved = await doc.ref.get();
+  return { [label === "class" ? "classSession" : label]: sanitizer(saved.id, saved.data(), { includePrivate: true }), deleted: true, softDeleted: true, progressExists: payload.progressExists || false };
 }
 
 export async function listAdminResources(admin, query = {}) {
@@ -252,51 +338,45 @@ export async function getAdminResource(admin, id) {
 }
 
 export async function saveAdminResource(admin, body = {}) {
-  assertManage(admin);
+  assertManage(admin, "resources.manage");
   const db = getDb();
   const id = cleanText(body.resourceId || body.id, 240);
   const existing = id ? await db.collection("resources").doc(id).get() : null;
-  const type = RESOURCE_TYPES.has(body.type) ? body.type : existing?.data()?.type || "external_link";
-  const status = RESOURCE_STATUS.has(body.status) ? body.status : existing?.data()?.status || "draft";
+  const existingData = existing?.exists ? existing.data() : {};
+  const type = RESOURCE_TYPES.has(body.type) ? body.type : existingData.type || "external_link";
+  const status = RESOURCE_STATUS.has(body.status) ? body.status : existingData.status || "draft";
   const assignments = planAssignments(body);
   const payload = {
     title: cleanText(body.title, 180),
     description: cleanText(body.description, 900),
     type,
     status,
-    accessScope: body.accessScope === "public" ? "public" : "plan",
+    accessScope: body.accessScope === "public" ? "public" : body.accessScope === "all_plans" ? "all_plans" : "plan",
     ...assignments,
     tags: listValue(body.tags),
     targetExams: listValue(body.targetExams),
-    publishAt: body.publishAt ? new Date(body.publishAt) : null,
-    expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
-    externalUrl: type === "external_link" || type === "video" ? safeHttpsUrl(body.externalUrl || body.videoUrl) : "",
-    fileName: cleanText(body.fileName || existing?.data()?.fileName, 240),
-    mimeType: cleanText(body.mimeType || existing?.data()?.mimeType, 120),
-    fileSize: Number(body.fileSize || existing?.data()?.fileSize || 0) || 0,
-    storagePath: cleanText(body.storagePath || existing?.data()?.storagePath, 700),
-    uploadState: body.storagePath || existing?.data()?.storagePath ? "uploaded" : "none",
+    publishAt: body.publishAt ? new Date(body.publishAt) : existingData.publishAt || null,
+    expiresAt: body.expiresAt ? new Date(body.expiresAt) : existingData.expiresAt || null,
+    externalUrl: ["external_link", "video"].includes(type) ? safeHttpsUrl(body.externalUrl || body.videoUrl) : "",
+    fileName: cleanText(body.fileName || existingData.fileName, 240),
+    mimeType: cleanText(body.mimeType || existingData.mimeType, 120),
+    fileSize: Number(body.fileSize || existingData.fileSize || 0) || 0,
+    storagePath: cleanText(body.storagePath || existingData.storagePath, 700),
+    uploadState: body.storagePath || existingData.storagePath ? "uploaded" : "none",
     reviewNotes: cleanText(body.reviewNotes, 700),
     updatedAt: serverTimestamp(),
     updatedBy: admin.uid
   };
   if (!payload.title) fail(400, "Resource title is required.", "INVALID_RESOURCE");
-  if (type === "external_link" && !payload.externalUrl) fail(400, "A secure HTTPS link is required.", "INVALID_RESOURCE_URL");
-  let ref;
-  if (existing?.exists) {
-    ref = existing.ref;
-    await ref.set(payload, { merge: true });
-  } else {
-    ref = db.collection("resources").doc();
-    await ref.set({ ...payload, createdAt: serverTimestamp(), createdBy: admin.uid, analytics: { views: 0, downloads: 0 } });
-  }
+  if (status === "published") validateResourceForPublish(payload);
+  const ref = existing?.exists ? existing.ref : db.collection("resources").doc();
+  await ref.set({ ...payload, ...(existing?.exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid, analytics: { views: 0, downloads: 0 } }), ...(status === "published" && !existingData.publishedAt ? { publishedAt: serverTimestamp() } : {}) }, { merge: true });
   const saved = await ref.get();
-  await writeAdminActivityLog({ admin, action: id ? "resource.update" : "resource.create", entityType: "resource", entityId: ref.id, safeMetadata: { status, type } });
+  await logContentAction(admin, existing?.exists ? "resource.update" : "resource.create", "resource", ref.id, payload, existingData.status, status, cleanText(body.reason));
   return { resource: sanitizeResource(saved.id, saved.data(), { includePrivate: true }) };
 }
-
 export async function duplicateAdminResource(admin, id) {
-  assertManage(admin);
+  assertManage(admin, "resources.manage");
   const source = await getDocOr404("resources", id, "resource");
   const data = source.data();
   const ref = getDb().collection("resources").doc();
@@ -306,14 +386,12 @@ export async function duplicateAdminResource(admin, id) {
   return { resource: sanitizeResource(saved.id, saved.data(), { includePrivate: true }) };
 }
 
-export async function setAdminResourceStatus(admin, id, status) {
-  assertManage(admin);
-  if (!RESOURCE_STATUS.has(status)) fail(400, "Unsupported resource status.", "INVALID_STATUS");
-  const doc = await getDocOr404("resources", id, "resource");
-  await doc.ref.set({ status, updatedAt: serverTimestamp(), updatedBy: admin.uid }, { merge: true });
-  await writeAdminActivityLog({ admin, action: `resource.${status}`, entityType: "resource", entityId: doc.id, safeMetadata: { status } });
-  const saved = await doc.ref.get();
-  return { resource: sanitizeResource(saved.id, saved.data(), { includePrivate: true }) };
+export function setAdminResourceStatus(admin, id, status, body = {}) {
+  return setStatus({ admin, collection: "resources", id, label: "resource", permission: "resources.manage", statuses: RESOURCE_STATUS, sanitizer: sanitizeResource, status, validatePublish: validateResourceForPublish, reason: body.reason });
+}
+
+export function deleteAdminResource(admin, id, body = {}) {
+  return softDelete({ admin, collection: "resources", id, label: "resource", permission: "resources.manage", sanitizer: sanitizeResource, reason: body.reason });
 }
 
 export async function createUploadSession(admin, body = {}) {
@@ -341,31 +419,42 @@ export async function getAdminTarget(admin, id) {
 }
 
 export async function saveAdminTarget(admin, body = {}) {
-  assertManage(admin, ["targets.manage"]);
+  assertManage(admin, "targets.manage");
   const db = getDb();
   const id = cleanText(body.targetId || body.id, 240);
-  const status = TARGET_STATUS.has(body.status) ? body.status : "draft";
+  const ref = id ? db.collection("targets").doc(id) : db.collection("targets").doc();
+  const existing = id ? await ref.get() : null;
+  const existingData = existing?.exists ? existing.data() : {};
+  const status = TARGET_STATUS.has(body.status) ? body.status : existingData.status || "draft";
   const payload = {
     title: cleanText(body.title, 180),
     description: cleanText(body.description, 1200),
     cadence: body.cadence === "weekly" ? "weekly" : "daily",
     status,
     ...planAssignments(body),
-    targetDate: body.targetDate ? new Date(body.targetDate) : null,
-    weekStart: body.weekStart ? new Date(body.weekStart) : null,
-    tasks: Array.isArray(body.tasks) ? body.tasks.map((task, index) => ({ id: cleanText(task.id || `task-${index + 1}`, 80), title: cleanText(task.title || task, 220), subject: cleanText(task.subject, 120), estimatedMinutes: Number(task.estimatedMinutes || 0) || 0 })).filter((task) => task.title) : [],
+    targetDate: body.targetDate ? new Date(body.targetDate) : existingData.targetDate || null,
+    startAt: body.startAt ? new Date(body.startAt) : body.targetDate ? new Date(body.targetDate) : existingData.startAt || existingData.targetDate || null,
+    dueAt: body.dueAt ? new Date(body.dueAt) : body.targetDate ? new Date(body.targetDate) : existingData.dueAt || existingData.targetDate || null,
+    weekStart: body.weekStart ? new Date(body.weekStart) : existingData.weekStart || null,
+    tasks: Array.isArray(body.tasks) ? body.tasks.map((task, index) => ({ id: cleanText(task.id || `task-${index + 1}`, 80), title: cleanText(task.title || task, 220), subject: cleanText(task.subject, 120), estimatedMinutes: Number(task.estimatedMinutes || 0) || 0 })).filter((task) => task.title) : existingData.tasks || [],
     updatedAt: serverTimestamp(),
     updatedBy: admin.uid
   };
   if (!payload.title) fail(400, "Target title is required.", "INVALID_TARGET");
-  const ref = id ? db.collection("targets").doc(id) : db.collection("targets").doc();
-  const exists = id ? (await ref.get()).exists : false;
-  await ref.set({ ...payload, ...(exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid }) }, { merge: true });
+  if (status === "published") validateTargetForPublish(payload);
+  await ref.set({ ...payload, ...(existing?.exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid }) }, { merge: true });
   const saved = await ref.get();
-  await writeAdminActivityLog({ admin, action: exists ? "target.update" : "target.create", entityType: "target", entityId: ref.id, safeMetadata: { status } });
+  await logContentAction(admin, existing?.exists ? "target.update" : "target.create", "target", ref.id, payload, existingData.status, status, cleanText(body.reason));
   return { target: sanitizeTarget(saved.id, saved.data(), { includePrivate: true }) };
 }
 
+export function setAdminTargetStatus(admin, id, status, body = {}) {
+  return setStatus({ admin, collection: "targets", id, label: "target", permission: "targets.manage", statuses: TARGET_STATUS, sanitizer: sanitizeTarget, status, validatePublish: validateTargetForPublish, reason: body.reason });
+}
+
+export function deleteAdminTarget(admin, id, body = {}) {
+  return softDelete({ admin, collection: "targets", id, label: "target", permission: "targets.manage", sanitizer: sanitizeTarget, reason: body.reason });
+}
 export async function listAdminClasses(admin, query = {}) {
   assertView(admin);
   return { classes: await listCollection("classes", sanitizeClass, query, { includePrivate: true }) };
@@ -378,43 +467,44 @@ export async function getAdminClass(admin, id) {
 }
 
 export async function saveAdminClass(admin, body = {}) {
-  assertManage(admin, ["classes.manage"]);
+  assertManage(admin, "classes.manage");
   const db = getDb();
   const id = cleanText(body.classId || body.id, 240);
-  const status = CLASS_STATUS.has(body.status) ? body.status : "upcoming";
+  const ref = id ? db.collection("classes").doc(id) : db.collection("classes").doc();
+  const existing = id ? await ref.get() : null;
+  const existingData = existing?.exists ? existing.data() : {};
+  const status = CLASS_STATUS.has(body.status) ? body.status : existingData.status || "draft";
+  const mode = body.mode === "recorded" ? "recorded" : "live";
   const payload = {
     title: cleanText(body.title, 180),
     description: cleanText(body.description, 900),
     status,
-    mode: body.mode === "recorded" ? "recorded" : "live",
+    mode,
     ...planAssignments(body),
-    startAt: body.startAt ? new Date(body.startAt) : null,
-    endAt: body.endAt ? new Date(body.endAt) : null,
-    host: cleanText(body.host || "Imran Sir", 120),
-    meetingUrl: safeHttpsUrl(body.meetingUrl),
-    recordedVideoUrl: safeHttpsUrl(body.recordedVideoUrl),
+    startAt: body.startAt ? new Date(body.startAt) : existingData.startAt || null,
+    endAt: body.endAt ? new Date(body.endAt) : existingData.endAt || null,
+    timezone: cleanText(body.timezone || existingData.timezone || "Asia/Kolkata", 80),
+    host: cleanText(body.host || existingData.host || "Imran Sir", 120),
+    meetingUrl: safeHttpsUrl(body.meetingUrl || existingData.meetingUrl),
+    recordedVideoUrl: safeHttpsUrl(body.recordedVideoUrl || existingData.recordedVideoUrl),
     updatedAt: serverTimestamp(),
     updatedBy: admin.uid
   };
   if (!payload.title) fail(400, "Class title is required.", "INVALID_CLASS");
-  const ref = id ? db.collection("classes").doc(id) : db.collection("classes").doc();
-  const exists = id ? (await ref.get()).exists : false;
-  await ref.set({ ...payload, ...(exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid }) }, { merge: true });
+  if (["published", "upcoming", "live", "recorded"].includes(status)) validateClassForPublish(payload);
+  await ref.set({ ...payload, ...(existing?.exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid }) }, { merge: true });
   const saved = await ref.get();
-  await writeAdminActivityLog({ admin, action: exists ? "class.update" : "class.create", entityType: "class", entityId: ref.id, safeMetadata: { status } });
+  await logContentAction(admin, existing?.exists ? "class.update" : "class.create", "class", ref.id, payload, existingData.status, status, cleanText(body.reason));
   return { classSession: sanitizeClass(saved.id, saved.data(), { includePrivate: true }) };
 }
 
-export async function setAdminClassStatus(admin, id, status) {
-  assertManage(admin, ["classes.manage"]);
-  if (!CLASS_STATUS.has(status)) fail(400, "Unsupported class status.", "INVALID_STATUS");
-  const doc = await getDocOr404("classes", id, "class");
-  await doc.ref.set({ status, updatedAt: serverTimestamp(), updatedBy: admin.uid }, { merge: true });
-  await writeAdminActivityLog({ admin, action: `class.${status}`, entityType: "class", entityId: doc.id, safeMetadata: { status } });
-  const saved = await doc.ref.get();
-  return { classSession: sanitizeClass(saved.id, saved.data(), { includePrivate: true }) };
+export function setAdminClassStatus(admin, id, status, body = {}) {
+  return setStatus({ admin, collection: "classes", id, label: "class", permission: "classes.manage", statuses: CLASS_STATUS, sanitizer: sanitizeClass, status, validatePublish: validateClassForPublish, reason: body.reason });
 }
 
+export function deleteAdminClass(admin, id, body = {}) {
+  return softDelete({ admin, collection: "classes", id, label: "class", permission: "classes.manage", sanitizer: sanitizeClass, reason: body.reason });
+}
 async function signedUrlFor(path, disposition = "inline") {
   if (!path || !path.startsWith(`${PRIVATE_PREFIX}/`)) fail(404, "Protected file is unavailable.", "FILE_NOT_FOUND");
   const [url] = await getStorage().bucket().file(path).getSignedUrl({ action: "read", expires: Date.now() + 5 * 60 * 1000, responseDisposition: disposition });
@@ -518,4 +608,14 @@ export async function joinClass(req, body = {}) {
   await getDb().collection("classAttendance").doc(`${user.uid}_${classId}`).set({ uid: user.uid, classId, joinedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
   return { classSession: safe, joinUrl: safe.meetingUrl || safe.recordedVideoUrl };
 }
+
+
+
+
+
+
+
+
+
+
 
