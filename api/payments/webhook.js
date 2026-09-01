@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { method, readRawBody, sendJson } from "../_lib/http.js";
-import { getCashfreeMode } from "../_lib/cashfree.js";
-import { processWebhookEvent } from "../_lib/payments.js";
+import { method, readRawBody, sendJson } from "../../server/_lib/http.js";
+import { getCashfreeMode } from "../../server/_lib/cashfree.js";
+import { processWebhookEvent } from "../../server/_lib/payments.js";
 
 export const config = {
   api: {
@@ -100,3 +100,4 @@ export default async function handler(req, res) {
     sendJson(res, 200, { received: true, processed: false, reason: "test_or_unsupported_event" });
   }
 }
+

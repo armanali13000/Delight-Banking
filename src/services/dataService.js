@@ -474,78 +474,68 @@ export function hasResourceAccess(resource, summary) {
 }
 
 export async function getAdminMe({ forceRefresh = false, logAccess = false } = {}) {
-  const suffix = logAccess ? "?logAccess=1" : "";
-  return apiFetch(`/api/admin/me${suffix}`, { forceRefresh });
+  return apiFetch(adminApiPath("me", { logAccess: logAccess ? "1" : "" }), { forceRefresh });
 }
 
 export async function updateAdminProfile(profile) {
-  return apiFetch("/api/admin/profile", {
-    method: "PATCH",
-    body: JSON.stringify(profile),
-    forceRefresh: true
-  });
+  return adminPost("update_admin_profile", profile);
 }
 
 export async function getAdminDashboardOverview(params = {}) {
-  const query = new URLSearchParams({ dashboard: "overview" });
+  const query = new URLSearchParams({ resource: "dashboard" });
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") query.set(key, value);
   });
-  return apiFetch(`/api/admin/me?${query.toString()}`, { forceRefresh: false });
+  return apiFetch(`/api/admin?${query.toString()}`, { forceRefresh: false });
 }
 export async function getAdminActivityLogs(limit = 25) {
-  return apiFetch(`/api/admin/activity-logs?limit=${encodeURIComponent(limit)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("activity_logs", { limit }), { forceRefresh: true });
 }
 
 export async function getAdministrators() {
-  return apiFetch("/api/admin/administrators", { forceRefresh: true });
+  return apiFetch(adminApiPath("administrators"), { forceRefresh: true });
 }
 
 export async function getAdministrator(uid) {
-  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("administrators", { uid }), { forceRefresh: true });
 }
 
 export async function searchAdminCandidate(email) {
-  return apiFetch(`/api/admin/users/search?email=${encodeURIComponent(email)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("users", { search: "1", email }), { forceRefresh: true });
 }
 
 export async function promoteAdministrator(payload) {
-  return apiFetch("/api/admin/administrators/promote", {
-    method: "POST",
-    body: JSON.stringify(payload),
-    forceRefresh: true
-  });
+  return adminPost("promote_administrator", payload);
 }
 
 export async function updateAdministratorRole(uid, payload) {
-  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-    forceRefresh: true
-  });
+  return apiFetch(adminApiPath("administrators", { uid }), { method: "PATCH", body: JSON.stringify(payload), forceRefresh: true });
 }
 
 export async function suspendAdministrator(uid, payload) {
-  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}/suspend`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-    forceRefresh: true
-  });
+  return adminPost("suspend_administrator", { uid, ...payload });
 }
 
 export async function reactivateAdministrator(uid, payload = {}) {
-  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}/reactivate`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-    forceRefresh: true
-  });
+  return adminPost("reactivate_administrator", { uid, ...payload });
 }
 
 export async function revokeAdministrator(uid, payload) {
-  return apiFetch(`/api/admin/administrators/${encodeURIComponent(uid)}/revoke`, {
+  return adminPost("revoke_administrator", { uid, ...payload });
+}
+function adminApiPath(resource, params = {}) {
+  const query = new URLSearchParams({ resource });
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.set(key, value);
+  });
+  return `/api/admin?${query.toString()}`;
+}
+
+function adminPost(action, payload = {}, options = {}) {
+  return apiFetch("/api/admin", {
     method: "POST",
-    body: JSON.stringify(payload),
-    forceRefresh: true
+    body: JSON.stringify({ action, ...payload }),
+    forceRefresh: options.forceRefresh ?? true
   });
 }
 function adminQuery(params = {}) {
@@ -558,64 +548,64 @@ function adminQuery(params = {}) {
 }
 
 export async function getAdminUsers(params = {}) {
-  return apiFetch(`/api/admin/users${adminQuery(params)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("users", params), { forceRefresh: true });
 }
 
 export async function getAdminUser(uid) {
-  return apiFetch(`/api/admin/users/${encodeURIComponent(uid)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("users", { uid }), { forceRefresh: true });
 }
 
 export async function updateAdminUser(uid, payload) {
-  return apiFetch(`/api/admin/users/${encodeURIComponent(uid)}`, { method: "PATCH", body: JSON.stringify(payload), forceRefresh: true });
+  return apiFetch(adminApiPath("users", { uid }), { method: "PATCH", body: JSON.stringify(payload), forceRefresh: true });
 }
 
 export async function updateAdminUserStatus(uid, payload) {
-  return apiFetch(`/api/admin/users/${encodeURIComponent(uid)}/status`, { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+  return adminPost("update_user_status", { uid, ...payload });
 }
 
 export async function addAdminEntityNote(entityType, entityId, payload) {
-  return apiFetch(`/api/admin/${entityType}s/${encodeURIComponent(entityId)}/notes`, { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+  return adminPost("add_note", { entityType, entityId, ...payload });
 }
 
 export async function getAdminSubscriptions(params = {}) {
-  return apiFetch(`/api/admin/subscriptions${adminQuery(params)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("subscriptions", params), { forceRefresh: true });
 }
 
 export async function getAdminSubscription(id) {
-  return apiFetch(`/api/admin/subscriptions/${encodeURIComponent(id)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("subscriptions", { subscriptionId: id }), { forceRefresh: true });
 }
 
 export async function grantAdminSubscription(payload) {
-  return apiFetch("/api/admin/subscriptions/grant", { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+  return adminPost("grant_subscription", payload);
 }
 
 export async function mutateAdminSubscription(id, action, payload) {
-  return apiFetch(`/api/admin/subscriptions/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(payload), forceRefresh: true });
+  return adminPost(`${action}_subscription`, { subscriptionId: id, ...payload });
 }
 
 export async function getAdminOrders(params = {}) {
-  return apiFetch(`/api/admin/orders${adminQuery(params)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("orders", params), { forceRefresh: true });
 }
 
 export async function getAdminOrder(id) {
-  return apiFetch(`/api/admin/orders/${encodeURIComponent(id)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("orders", { orderId: id }), { forceRefresh: true });
 }
 
 export async function getAdminTransactions(params = {}) {
-  return apiFetch(`/api/admin/transactions${adminQuery(params)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("transactions", params), { forceRefresh: true });
 }
 
 export async function getAdminTransaction(id) {
-  return apiFetch(`/api/admin/transactions/${encodeURIComponent(id)}`, { forceRefresh: true });
+  return apiFetch(adminApiPath("transactions", { transactionId: id }), { forceRefresh: true });
 }
 
 export async function reconcileAdminTransaction(id) {
-  return apiFetch(`/api/admin/transactions/${encodeURIComponent(id)}/reconcile`, { method: "POST", forceRefresh: true });
+  return adminPost("reconcile_transaction", { transactionId: id });
 }
 
 export async function exportAdminReport(reportType, params = {}) {
   const token = await getAuthToken(true);
-  const response = await fetch(`/api/admin/exports/${encodeURIComponent(reportType)}${adminQuery(params)}`, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await fetch(adminApiPath("exports", { type: reportType, ...params }), { headers: { Authorization: `Bearer ${token}` } });
   const text = await response.text();
   if (!response.ok) {
     let data = {};
@@ -696,6 +686,9 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
+
+
 
 
 

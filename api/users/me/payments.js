@@ -1,4 +1,4 @@
-import { method, sendJson } from "../../_lib/http.js";
+import { method, sendJson } from "../../../server/_lib/http.js";
 
 export default async function handler(req, res) {
   if (!method(req, res, ["GET"])) return;
@@ -9,8 +9,8 @@ export default async function handler(req, res) {
       return;
     }
     const [{ requireUser }, { getUserPaymentSummary }] = await Promise.all([
-      import("../../_lib/firebaseAdmin.js"),
-      import("../../_lib/payments.js")
+      import("../../../server/_lib/firebaseAdmin.js"),
+      import("../../../server/_lib/payments.js")
     ]);
     const user = await requireUser(req);
     const result = await getUserPaymentSummary(user);
@@ -20,3 +20,4 @@ export default async function handler(req, res) {
     sendJson(res, error.statusCode || 500, { error: error.safeMessage || (error.statusCode ? error.message : "Server could not complete the request.") });
   }
 }
+

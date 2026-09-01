@@ -1,6 +1,6 @@
-import { requireUser } from "../../_lib/firebaseAdmin.js";
-import { handleError, method, sendJson } from "../../_lib/http.js";
-import { getOrderStatusForUser } from "../../_lib/payments.js";
+import { requireUser } from "../../../server/_lib/firebaseAdmin.js";
+import { handleError, method, sendJson } from "../../../server/_lib/http.js";
+import { getOrderStatusForUser } from "../../../server/_lib/payments.js";
 
 export default async function handler(req, res) {
   if (!method(req, res, ["GET"])) return;
@@ -12,3 +12,4 @@ export default async function handler(req, res) {
     handleError(res, error);
   }
 }
+

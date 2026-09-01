@@ -1,4 +1,4 @@
-import { method, readJson, sendJson } from "../_lib/http.js";
+import { method, readJson, sendJson } from "../../server/_lib/http.js";
 
 export default async function handler(req, res) {
   if (!method(req, res, ["POST"])) return;
@@ -9,8 +9,8 @@ export default async function handler(req, res) {
       return;
     }
     const [{ requireUser }, { createOrderForVariant }] = await Promise.all([
-      import("../_lib/firebaseAdmin.js"),
-      import("../_lib/payments.js")
+      import("../../server/_lib/firebaseAdmin.js"),
+      import("../../server/_lib/payments.js")
     ]);
     const user = await requireUser(req);
     const body = await readJson(req);
@@ -21,4 +21,5 @@ export default async function handler(req, res) {
     sendJson(res, error.statusCode || 500, { error: error.safeMessage || (error.statusCode ? error.message : "Server could not complete the request.") });
   }
 }
+
 
