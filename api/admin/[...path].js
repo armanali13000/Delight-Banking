@@ -23,12 +23,25 @@ import {
   updateUserStatus
 } from "../_lib/adminOperations.js";
 
+function decodePathPart(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    const error = new Error("Malformed encoded route identifier.");
+    error.statusCode = 400;
+    error.code = "MALFORMED_ROUTE_ID";
+    throw error;
+  }
+}
+
 function parts(req) {
   const value = req.query?.path || req.query?.["...path"] || [];
-  const queryParts = (Array.isArray(value) ? value : [value]).map((item) => decodeURIComponent(String(item || ""))).filter(Boolean);
+  const queryParts = (Array.isArray(value) ? value : [value]).map(decodePathPart).filter(Boolean);
   if (queryParts.length) return queryParts;
   const pathname = String(req.url || "").split("?")[0].replace(/^\/api\/admin\/?/, "");
-  return pathname.split("/").map((item) => decodeURIComponent(item)).filter(Boolean);
+  return pathname.split("/").map(decodePathPart).filter(Boolean);
 }
 
 function sendCsv(res, report) {

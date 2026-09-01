@@ -393,17 +393,18 @@ export async function getAuthToken(forceRefresh = false) {
   return fb.auth.currentUser.getIdToken(forceRefresh);
 }
 
-function friendlyApiError(status, code, message) {
+function friendlyApiError(status, code, message, requestId = "") {
   if (code === "RECENT_LOGIN_REQUIRED") return "Recent authentication is required.";
   if (code === "ADMIN_ALREADY_ACTIVE") return "This user is already an administrator.";
   if (code === "TARGET_EMAIL_UNVERIFIED") return "This email must be verified first.";
   if (code === "TARGET_ACCOUNT_DISABLED") return "This account is disabled.";
-  if (status === 401) return "Your admin session has expired. Please sign in again.";
-  if (status === 403) return message || "You do not have permission to manage administrators.";
-  if (status === 404) return message || "The requested admin account or API route was not found.";
-  if (status === 405) return "Administrator API method is not configured correctly.";
-  if (status === 409) return message || "This user is already an administrator.";
-  if (status >= 500) return message || "Administrator access could not be granted. Check the server logs.";
+  if (code === "MALFORMED_ROUTE_ID" || status === 400) return message || "The requested identifier is malformed.";
+  if (status === 401) return "Session expired. Please sign in again.";
+  if (status === 403) return message || "Permission denied.";
+  if (status === 404) return message || "The requested record was not found.";
+  if (status === 405) return "This action uses an unsupported HTTP method.";
+  if (status === 409) return message || "This request conflicts with an existing record.";
+  if (status >= 500) return `${message || "Server error."}${requestId ? ` Request ID: ${requestId}` : ""}`;
   if (message) return message;
   return "Network error. Please try again.";
 }
@@ -431,12 +432,15 @@ async function apiFetch(path, options = {}) {
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    data = { error: response.ok ? "" : "Request failed." };
+    data = { error: { code: "NON_JSON_RESPONSE", message: response.ok ? "" : "The server returned HTML instead of JSON." } };
   }
   if (!response.ok) {
-    const error = new Error(friendlyApiError(response.status, data.code, data.error));
+    const apiError = typeof data.error === "object" && data.error ? data.error : { code: data.code, message: data.error };
+    const error = new Error(friendlyApiError(response.status, apiError.code || data.code, apiError.message || data.error, apiError.requestId));
     error.status = response.status;
-    error.code = data.code || "REQUEST_FAILED";
+    error.code = apiError.code || data.code || "REQUEST_FAILED";
+    error.requestId = apiError.requestId || "";
+    error.responseBody = text;
     throw error;
   }
   return data;
@@ -616,9 +620,11 @@ export async function exportAdminReport(reportType, params = {}) {
   if (!response.ok) {
     let data = {};
     try { data = JSON.parse(text); } catch { data = { error: text }; }
-    const error = new Error(friendlyApiError(response.status, data.code, data.error));
+    const apiError = typeof data.error === "object" && data.error ? data.error : { code: data.code, message: data.error };
+    const error = new Error(friendlyApiError(response.status, apiError.code || data.code, apiError.message || data.error, apiError.requestId));
     error.status = response.status;
-    error.code = data.code || "REQUEST_FAILED";
+    error.code = apiError.code || data.code || "REQUEST_FAILED";
+    error.requestId = apiError.requestId || "";
     throw error;
   }
   return { filename: response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] || `${reportType}.csv`, csv: text };
@@ -690,6 +696,7 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
 
 
 

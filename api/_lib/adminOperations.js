@@ -3,6 +3,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getAdminApp, getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { hasPermission, writeAdminActivityLog } from "./adminAuth.js";
 import { getVariant, planSnapshot, plans } from "./plans.js";
+import { normalizeOrder as normalizeAdminOrder, normalizeSubscription as normalizeAdminSubscription, normalizeTransaction as normalizeAdminTransaction, normalizeUser as normalizeAdminUser } from "./adminNormalizers.js";
 import { addCalendarMonths, syncOrderWithCashfree } from "./payments.js";
 import { readJson } from "./http.js";
 
@@ -68,91 +69,16 @@ function normalizePaymentStatus(value) {
   return "pending";
 }
 
-function serializeSubscription(id, data) {
-  const end = toDate(data.accessEndAt);
-  const status = data.status === "active" && end && end.getTime() <= Date.now() ? "expired" : (data.status || "pending");
-  return {
-    id,
-    subscriptionId: id,
-    userId: data.userId || data.uid || "",
-    userEmail: data.userEmail || data.email || "",
-    studentName: data.studentName || data.userName || data.userEmail || "Student",
-    planId: data.planId || "",
-    variantId: data.variantId || "",
-    planName: displayPlanName(data.planName || data.planSnapshot?.name),
-    durationLabel: data.durationLabel || data.planSnapshot?.durationLabel || "",
-    amountPaid: Number(data.amountPaid ?? data.amountInRupees ?? 0),
-    currency: data.currency || "INR",
-    source: data.source || data.accessSource || "cashfree_payment",
-    accessStartAt: iso(data.accessStartAt),
-    accessEndAt: iso(data.accessEndAt),
-    daysRemaining: daysRemaining(data.accessEndAt),
-    status,
-    autoRenew: Boolean(data.autoRenew),
-    orderId: data.orderId || null,
-    paymentId: data.paymentId || null,
-    createdBy: data.createdBy || data.grantedBy || null,
-    createdAt: iso(data.createdAt),
-    updatedAt: iso(data.updatedAt),
-    reason: data.reason || data.grantReason || data.cancellationReason || data.revocationReason || ""
-  };
+function serializeSubscription(id, data, context = {}) {
+  return normalizeAdminSubscription(id, data, context);
 }
 
 function serializeOrder(id, data) {
-  const snapshot = data.trustedPlanSnapshot || {};
-  return {
-    id,
-    orderId: id,
-    internalOrderId: data.internalOrderNumber || data.merchantOrderId || id,
-    cashfreeOrderId: data.cashfreeOrderId || null,
-    userId: data.userId || "",
-    userEmail: data.userEmail || "",
-    studentName: data.billing?.name || data.userName || data.userEmail || "Student",
-    planId: data.planId || snapshot.planId || "",
-    variantId: data.variantId || snapshot.variantId || "",
-    planName: displayPlanName(snapshot.name || data.planName),
-    durationLabel: snapshot.durationLabel || data.durationLabel || "",
-    expectedAmount: Number(data.amountInRupees ?? data.amount ?? 0),
-    currency: data.currency || "INR",
-    orderStatus: data.orderStatus || "created",
-    paymentStatus: data.paymentStatus || "pending",
-    paymentId: data.paymentId || null,
-    createdAt: iso(data.createdAt),
-    updatedAt: iso(data.updatedAt),
-    paidAt: iso(data.paidAt),
-    lastReconciledAt: iso(data.lastReconciledAt)
-  };
+  return normalizeAdminOrder(id, data);
 }
 
-function serializePayment(id, data) {
-  return {
-    id,
-    transactionId: id,
-    internalTransactionId: id,
-    cashfreePaymentId: data.cashfreePaymentId || data.cfPaymentId || data.providerPaymentId || null,
-    cashfreeOrderId: data.cashfreeOrderId || null,
-    internalOrderId: data.merchantOrderId || data.orderDocumentId || null,
-    orderDocumentId: data.orderDocumentId || null,
-    userId: data.userId || "",
-    userEmail: data.userEmail || "",
-    planId: data.planId || "",
-    variantId: data.variantId || "",
-    planName: displayPlanName(data.planName),
-    durationLabel: data.durationLabel || "",
-    amount: Number(data.amountInRupees ?? data.amount ?? 0),
-    currency: data.currency || "INR",
-    paymentMethod: data.paymentMethod || "Secure Payment",
-    status: data.status || "pending",
-    normalizedStatus: normalizePaymentStatus(data.status),
-    verified: Boolean(data.verified),
-    webhookVerified: Boolean(data.webhookVerified || data.verified),
-    subscriptionActivated: Boolean(data.subscriptionActivated || data.orderDocumentId || data.merchantOrderId),
-    capturedAt: iso(data.capturedAt),
-    createdAt: iso(data.createdAt),
-    updatedAt: iso(data.updatedAt),
-    lastReconciledAt: iso(data.lastReconciledAt),
-    refundStatus: data.refundStatus || null
-  };
+function serializePayment(id, data, context = {}) {
+  return normalizeAdminTransaction(id, data, context);
 }
 
 function paginate(items, query) {
@@ -183,9 +109,63 @@ async function getStudentsById() {
   return map;
 }
 
+function matchesAny(value, candidates) {
+  return candidates.filter(Boolean).includes(value);
+}
+
+function rawDoc(doc) {
+  return { id: doc.id, data: doc.data() };
+}
+
+function uniqueDocs(docs) {
+  const seen = new Set();
+  return docs.filter((doc) => {
+    if (!doc || seen.has(doc.id)) return false;
+    seen.add(doc.id);
+    return true;
+  });
+}
+
+function findLinkedOrder(subscription, orders) {
+  if (!subscription?.orderId) return null;
+  const match = orders.find((order) => matchesAny(subscription.orderId, [order.id, order.data.internalOrderNumber, order.data.merchantOrderId, order.data.cashfreeOrderId]));
+  return match ? { id: match.id, ...match.data } : null;
+}
+
+function findLinkedPayment(subscription, payments) {
+  const keys = [subscription?.paymentId, subscription?.transactionId, subscription?.orderId].filter(Boolean);
+  if (!keys.length) return null;
+  const match = payments.find((payment) => keys.some((key) => matchesAny(key, [payment.id, payment.data.cashfreePaymentId, payment.data.cfPaymentId, payment.data.providerPaymentId, payment.data.orderDocumentId, payment.data.merchantOrderId, payment.data.cashfreeOrderId])));
+  return match ? { id: match.id, ...paymentSafeData(match.data) } : null;
+}
+
+function paymentSafeData(data) {
+  return data || {};
+}
+
+function findSubscriptionForPayment(payment, subscriptions) {
+  const data = payment?.data || {};
+  const keys = [payment?.id, data.cashfreePaymentId, data.cfPaymentId, data.providerPaymentId, data.orderDocumentId, data.merchantOrderId, data.cashfreeOrderId].filter(Boolean);
+  const match = subscriptions.find((subscription) => keys.some((key) => matchesAny(key, [subscription.id, subscription.data.paymentId, subscription.data.transactionId, subscription.data.cashfreePaymentId, subscription.data.orderId, subscription.data.orderDocumentId, subscription.data.merchantOrderId])));
+  return match ? serializeSubscription(match.id, match.data) : null;
+}
+
 async function getSubscriptions() {
-  const snap = await getDb().collection("subscriptions").limit(MAX_READ).get();
-  return snap.docs.map((doc) => serializeSubscription(doc.id, doc.data()));
+  const db = getDb();
+  const [subsSnap, ordersSnap, paymentsSnap] = await Promise.all([
+    db.collection("subscriptions").limit(MAX_READ).get(),
+    db.collection("orders").limit(MAX_READ).get(),
+    db.collection("payments").limit(MAX_READ).get()
+  ]);
+  const orders = ordersSnap.docs.map(rawDoc);
+  const payments = paymentsSnap.docs.map(rawDoc);
+  return subsSnap.docs.map((doc) => {
+    const subscription = serializeSubscription(doc.id, doc.data());
+    return serializeSubscription(doc.id, doc.data(), {
+      order: findLinkedOrder(subscription, orders),
+      payment: findLinkedPayment(subscription, payments)
+    });
+  });
 }
 
 async function getOrders() {
@@ -194,8 +174,13 @@ async function getOrders() {
 }
 
 async function getPayments() {
-  const snap = await getDb().collection("payments").limit(MAX_READ).get();
-  return snap.docs.map((doc) => serializePayment(doc.id, doc.data()));
+  const db = getDb();
+  const [paymentsSnap, subsSnap] = await Promise.all([
+    db.collection("payments").limit(MAX_READ).get(),
+    db.collection("subscriptions").limit(MAX_READ).get()
+  ]);
+  const subscriptions = subsSnap.docs.map(rawDoc);
+  return paymentsSnap.docs.map((doc) => serializePayment(doc.id, doc.data(), { subscription: findSubscriptionForPayment(rawDoc(doc), subscriptions) }));
 }
 
 async function getActivity(entityType, entityId, limit = 50) {
@@ -211,32 +196,7 @@ async function listAuthUsers() {
 }
 
 function mergeUser(authUser, student = {}, subscriptions = []) {
-  const activeSubs = subscriptions.filter((item) => item.userId === authUser.uid && item.status === "active");
-  const current = [...activeSubs].sort((a, b) => String(b.accessEndAt || "").localeCompare(String(a.accessEndAt || "")))[0] || null;
-  return {
-    uid: authUser.uid,
-    displayName: student.name || authUser.displayName || authUser.email || "Student",
-    email: authUser.email || student.email || "",
-    phone: student.phone || authUser.phoneNumber || "",
-    photoURL: student.photo || authUser.photoURL || "",
-    provider: student.provider || authUser.providerData?.[0]?.providerId || "password",
-    emailVerified: Boolean(authUser.emailVerified || student.emailVerified),
-    accountStatus: student.accountStatus || student.status || (authUser.disabled ? "blocked" : "active"),
-    disabled: Boolean(authUser.disabled),
-    createdAt: authUser.metadata.creationTime || student.createdAt || null,
-    lastSignInAt: authUser.metadata.lastSignInTime || student.lastSeenAt || null,
-    lastWebsiteActivityAt: student.lastSeenAt || null,
-    activeSubscriptionCount: activeSubs.length,
-    currentPlan: current?.planName || "No active plan",
-    currentVariantId: current?.variantId || "",
-    subscriptionExpiry: current?.accessEndAt || null,
-    targetExams: student.activeExams || (student.targetExam ? [student.targetExam] : []),
-    preferredLanguage: student.preferredLanguage || "",
-    preparationLevel: student.preparationLevel || "",
-    city: student.city || "",
-    state: student.state || "",
-    address: student.address || ""
-  };
+  return normalizeAdminUser(authUser, student, subscriptions);
 }
 
 export async function listUsers(admin, query) {
@@ -272,21 +232,33 @@ export async function getUserDetail(admin, uid) {
   const authUser = await auth.getUser(uid).catch(() => null);
   if (!authUser) throw httpError("User was not found.", 404);
   const db = getDb();
-  const [studentSnap, subsSnap, ordersSnap, paymentsSnap, logs, notesSnap] = await Promise.all([
+  const [studentSnap, subsUserSnap, subsUidSnap, ordersUserSnap, ordersUidSnap, paymentsUserSnap, paymentsUidSnap, logs, notesSnap] = await Promise.all([
     db.collection("students").doc(uid).get(),
     db.collection("subscriptions").where("userId", "==", uid).limit(100).get(),
+    db.collection("subscriptions").where("uid", "==", uid).limit(100).get().catch(() => ({ docs: [] })),
     db.collection("orders").where("userId", "==", uid).limit(100).get(),
+    db.collection("orders").where("uid", "==", uid).limit(100).get().catch(() => ({ docs: [] })),
     db.collection("payments").where("userId", "==", uid).limit(100).get(),
+    db.collection("payments").where("uid", "==", uid).limit(100).get().catch(() => ({ docs: [] })),
     getActivity("user", uid),
     db.collection("adminNotes").where("entityType", "==", "user").where("entityId", "==", uid).limit(50).get().catch(() => ({ docs: [] }))
   ]);
-  const subscriptions = subsSnap.docs.map((doc) => serializeSubscription(doc.id, doc.data()));
+  const subDocs = uniqueDocs([...subsUserSnap.docs, ...subsUidSnap.docs]);
+  const orderDocs = uniqueDocs([...ordersUserSnap.docs, ...ordersUidSnap.docs]);
+  const paymentDocs = uniqueDocs([...paymentsUserSnap.docs, ...paymentsUidSnap.docs]);
+  const rawOrders = orderDocs.map(rawDoc);
+  const rawPayments = paymentDocs.map(rawDoc);
+  const subscriptions = subDocs.map((doc) => {
+    const base = serializeSubscription(doc.id, doc.data());
+    return serializeSubscription(doc.id, doc.data(), { order: findLinkedOrder(base, rawOrders), payment: findLinkedPayment(base, rawPayments) });
+  });
   return {
     user: mergeUser(authUser, studentSnap.exists ? studentSnap.data() : {}, subscriptions),
     profile: studentSnap.exists ? studentSnap.data() : {},
+    profileStatus: studentSnap.exists ? "complete" : "incomplete",
     subscriptions,
-    orders: ordersSnap.docs.map((doc) => serializeOrder(doc.id, doc.data())),
-    transactions: paymentsSnap.docs.map((doc) => serializePayment(doc.id, doc.data())),
+    orders: orderDocs.map((doc) => serializeOrder(doc.id, doc.data())),
+    transactions: paymentDocs.map((doc) => serializePayment(doc.id, doc.data(), { subscription: findSubscriptionForPayment(rawDoc(doc), subDocs.map(rawDoc)) })),
     activity: logs,
     notes: notesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt) }))
   };
@@ -350,22 +322,28 @@ export async function listSubscriptions(admin, query) {
 
 export async function getSubscriptionDetail(admin, id) {
   assertPermission(admin, "subscriptions.view");
+  if (!cleanText(id, 220)) throw httpError("Subscription id is required.", 400);
   const db = getDb();
   const snap = await db.collection("subscriptions").doc(id).get();
   if (!snap.exists) throw httpError("Subscription was not found.", 404);
-  const subscription = serializeSubscription(snap.id, snap.data());
+  const base = serializeSubscription(snap.id, snap.data());
   const [user, orderSnap, paymentSnap, logs, notesSnap] = await Promise.all([
-    subscription.userId ? getUserDetail(admin, subscription.userId).catch(() => null) : null,
-    subscription.orderId ? db.collection("orders").doc(subscription.orderId).get().catch(() => null) : null,
-    subscription.paymentId ? db.collection("payments").doc(subscription.paymentId).get().catch(() => null) : null,
+    base.userId ? getUserDetail(admin, base.userId).catch(() => null) : null,
+    base.orderId ? db.collection("orders").doc(base.orderId).get().catch(() => null) : null,
+    base.paymentId ? db.collection("payments").doc(base.paymentId).get().catch(() => null) : null,
     getActivity("subscription", id),
     db.collection("adminNotes").where("entityType", "==", "subscription").where("entityId", "==", id).limit(50).get().catch(() => ({ docs: [] }))
   ]);
+  const order = orderSnap?.exists ? { id: orderSnap.id, ...orderSnap.data() } : null;
+  const payment = paymentSnap?.exists ? { id: paymentSnap.id, ...paymentSnap.data() } : null;
+  const subscription = serializeSubscription(snap.id, snap.data(), { order, payment });
   return {
     subscription,
     user: user?.user || null,
-    orders: orderSnap?.exists ? [serializeOrder(orderSnap.id, orderSnap.data())] : [],
-    transactions: paymentSnap?.exists ? [serializePayment(paymentSnap.id, paymentSnap.data())] : [],
+    orders: order ? [serializeOrder(orderSnap.id, orderSnap.data())] : [],
+    transactions: payment ? [serializePayment(paymentSnap.id, paymentSnap.data(), { subscription })] : [],
+    linkedOrderMissing: Boolean(base.orderId && !order),
+    linkedTransactionMissing: Boolean(base.paymentId && !payment),
     activity: logs,
     notes: notesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt) }))
   };
@@ -479,11 +457,27 @@ export async function listTransactions(admin, query) {
 
 export async function getTransactionDetail(admin, id) {
   assertPermission(admin, hasPermission(admin, "payments.view") ? "payments.view" : "payments.view_limited");
-  const snap = await getDb().collection("payments").doc(id).get();
+  if (!cleanText(id, 220)) throw httpError("Transaction id is required.", 400);
+  const db = getDb();
+  const snap = await db.collection("payments").doc(id).get();
   if (!snap.exists) throw httpError("Transaction was not found.", 404);
-  const transaction = serializePayment(snap.id, snap.data());
-  const timeline = [transaction.createdAt && { label: "Payment record created", at: transaction.createdAt }, transaction.webhookVerified && { label: "Webhook/signature verified", at: transaction.updatedAt || transaction.createdAt }, transaction.verified && { label: "Payment confirmed", at: transaction.capturedAt || transaction.updatedAt }, transaction.subscriptionActivated && { label: "Subscription activated", at: transaction.updatedAt }, transaction.lastReconciledAt && { label: "Payment reconciled", at: transaction.lastReconciledAt }].filter(Boolean);
-  return { transaction, timeline, activity: await getActivity("transaction", id) };
+  const rawPayment = rawDoc(snap);
+  const paymentData = snap.data();
+  const keys = [snap.id, paymentData.cashfreePaymentId, paymentData.cfPaymentId, paymentData.providerPaymentId, paymentData.orderDocumentId, paymentData.merchantOrderId, paymentData.cashfreeOrderId].filter(Boolean);
+  const [subsSnap, logs] = await Promise.all([
+    db.collection("subscriptions").limit(MAX_READ).get(),
+    getActivity("transaction", id)
+  ]);
+  const linkedSubscription = findSubscriptionForPayment(rawPayment, subsSnap.docs.map(rawDoc));
+  const transaction = serializePayment(snap.id, paymentData, { subscription: linkedSubscription });
+  const timeline = [
+    transaction.createdAt && { label: "Payment record created", at: transaction.createdAt },
+    transaction.webhookVerified && { label: "Webhook signature verified", at: transaction.updatedAt || transaction.createdAt },
+    transaction.verified && { label: "Payment verified server-side", at: transaction.capturedAt || transaction.updatedAt },
+    transaction.subscriptionActivated && { label: "Subscription activated", at: transaction.updatedAt },
+    transaction.lastReconciledAt && { label: "Payment reconciled", at: transaction.lastReconciledAt }
+  ].filter(Boolean);
+  return { transaction, subscription: linkedSubscription, lookupKeys: keys, timeline, activity: logs };
 }
 
 export async function reconcileTransaction(admin, id) {
@@ -559,3 +553,13 @@ export async function readBody(req) {
 }
 
 export { plans, getPlanSnapshot };
+
+
+
+
+
+
+
+
+
+

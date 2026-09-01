@@ -2775,3 +2775,86 @@ body.mobile-nav-locked {
     overflow-x: auto;
   }
 }
+
+.admin-sidebar button:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.admin-sidebar button.active {
+  border-color: rgba(95, 149, 255, 0.7);
+  background: rgba(38, 107, 255, 0.26);
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 #93c5fd;
+}
+
+.admin-back-row {
+  margin-bottom: 0.85rem;
+}
+
+.admin-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-table {
+  table-layout: auto;
+}
+
+.admin-table th,
+.admin-table td {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+  min-width: 7.5rem;
+}
+
+.admin-table .admin-nowrap,
+.admin-nowrap,
+.admin-status-badge,
+.admin-row-actions,
+.admin-table .text-button,
+.admin-table .ghost-button {
+  white-space: nowrap;
+}
+
+.admin-id-cell {
+  min-width: 10rem;
+  max-width: 16rem;
+}
+
+.admin-truncated-value {
+  display: inline-block;
+  max-width: min(16rem, 48vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.admin-security-fields dd .admin-truncated-value {
+  max-width: min(34rem, 72vw);
+}
+
+.admin-table td:nth-child(2),
+.admin-table td:nth-child(3) {
+  max-width: 18rem;
+}
+
+.admin-table td,
+.admin-table small {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+@media (max-width: 760px) {
+  .admin-table {
+    min-width: 860px;
+  }
+
+  .admin-truncated-value {
+    max-width: 12rem;
+  }
+}

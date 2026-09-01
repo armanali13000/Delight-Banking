@@ -1,13 +1,19 @@
+import crypto from "node:crypto";
+
+function requestId() {
+  return crypto.randomBytes(8).toString("hex");
+}
+
 export function sendJson(res, status, body) {
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
 }
 
 export function method(req, res, allowed) {
   if (!allowed.includes(req.method)) {
     res.setHeader("Allow", allowed.join(", "));
-    sendJson(res, 405, { error: "Method not allowed" });
+    sendJson(res, 405, { ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed.", requestId: requestId() } });
     return false;
   }
   return true;
@@ -36,10 +42,21 @@ export async function readRawBody(req) {
   return Buffer.concat(chunks);
 }
 
+function codeFor(status, error) {
+  if (error.code || error.safeCode) return error.code || error.safeCode;
+  if (status === 400) return "INVALID_REQUEST";
+  if (status === 401) return "AUTHENTICATION_REQUIRED";
+  if (status === 403) return "PERMISSION_DENIED";
+  if (status === 404) return "NOT_FOUND";
+  if (status === 405) return "METHOD_NOT_ALLOWED";
+  return "SERVER_ERROR";
+}
+
 export function handleError(res, error) {
   const status = error.statusCode || 500;
+  const id = requestId();
   const message = error.safeMessage || (status >= 500 ? "Server could not complete the request." : error.message);
-  const code = error.code || error.safeCode || (status >= 500 ? "SERVER_CONFIGURATION_OR_FIREBASE_ERROR" : "REQUEST_FAILED");
-  if (status >= 500) console.error("API request failed", { status, code, message });
-  sendJson(res, status, { error: message, code, status });
+  const code = codeFor(status, error);
+  if (status >= 500) console.error("API request failed", { requestId: id, status, code, message, stack: error.stack });
+  sendJson(res, status, { ok: false, error: { code, message, requestId: id }, code, status });
 }
