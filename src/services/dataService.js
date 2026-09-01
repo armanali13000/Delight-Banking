@@ -1,4 +1,4 @@
-import { firebaseConfig, seedResources } from "../config.js";
+﻿import { firebaseConfig, seedResources } from "../config.js";
 
 export const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => {
   return typeof value === "string" && value.trim() && !value.includes("PASTE_");
@@ -12,16 +12,19 @@ async function getFirebase() {
   firebaseReady = Promise.all([
     import("https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js"),
     import("https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js"),
-    import("https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js")
-  ]).then(([appModule, authModule, firestoreModule]) => {
+    import("https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.4/firebase-storage.js")
+  ]).then(([appModule, authModule, firestoreModule, storageModule]) => {
     const app = appModule.initializeApp(firebaseConfig);
     return {
       appModule,
       authModule,
       firestoreModule,
+      storageModule,
       app,
       auth: authModule.getAuth(app),
-      db: firestoreModule.getFirestore(app)
+      db: firestoreModule.getFirestore(app),
+      storage: storageModule.getStorage(app)
     };
   });
 
@@ -619,6 +622,127 @@ export async function exportAdminReport(reportType, params = {}) {
   }
   return { filename: response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] || `${reportType}.csv`, csv: text };
 }
+
+export async function getAdminResources(params = {}) {
+  return apiFetch(adminApiPath("resources", params), { forceRefresh: true });
+}
+
+export async function getAdminResource(id) {
+  return apiFetch(adminApiPath("resources", { resourceId: id }), { forceRefresh: true });
+}
+
+export async function saveAdminResource(payload) {
+  return adminPost("save_resource", payload);
+}
+
+export async function duplicateAdminResource(id) {
+  return adminPost("duplicate_resource", { resourceId: id });
+}
+
+export async function setAdminResourceStatus(id, status) {
+  const action = status === "published" ? "publish_resource" : status === "scheduled" ? "schedule_resource" : `${status}_resource`;
+  return adminPost(action, { resourceId: id });
+}
+
+export async function createResourceUploadSession(file, payload = {}) {
+  return adminPost("create_upload_session", { filename: file?.name, mimeType: file?.type, size: file?.size, ...payload });
+}
+
+export async function uploadProtectedResourceFile(file, payload = {}, onProgress) {
+  if (!file) throw new Error("Choose a file first.");
+  const session = await createResourceUploadSession(file, payload);
+  const fb = await getFirebase();
+  if (!fb?.storageModule || !fb?.storage) throw new Error("Firebase Storage is not configured.");
+  const storageRef = fb.storageModule.ref(fb.storage, session.upload.storagePath);
+  await new Promise((resolve, reject) => {
+    const task = fb.storageModule.uploadBytesResumable(storageRef, file, { contentType: session.upload.contentType || file.type });
+    task.on("state_changed", (snapshot) => {
+      if (onProgress && snapshot.totalBytes) onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+    }, reject, resolve);
+  });
+  return { storagePath: session.upload.storagePath, fileName: file.name, mimeType: file.type, fileSize: file.size };
+}
+
+export async function getAdminTargets(params = {}) {
+  return apiFetch(adminApiPath("targets", params), { forceRefresh: true });
+}
+
+export async function getAdminTarget(id) {
+  return apiFetch(adminApiPath("targets", { targetId: id }), { forceRefresh: true });
+}
+
+export async function saveAdminTarget(payload) {
+  return adminPost("save_target", payload);
+}
+
+export async function getAdminClasses(params = {}) {
+  return apiFetch(adminApiPath("classes", params), { forceRefresh: true });
+}
+
+export async function getAdminClass(id) {
+  return apiFetch(adminApiPath("classes", { classId: id }), { forceRefresh: true });
+}
+
+export async function saveAdminClass(payload) {
+  return adminPost("save_class", payload);
+}
+
+export async function setAdminClassStatus(id, status) {
+  const action = status === "cancelled" ? "cancel_class" : status === "recorded" ? "record_class" : "archive_class";
+  return adminPost(action, { classId: id });
+}
+
+function studentContentPath(resource, params = {}) {
+  const query = new URLSearchParams({ resource });
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.set(key, value);
+  });
+  return `/api/student-content?${query.toString()}`;
+}
+
+function studentContentPost(action, payload = {}) {
+  return apiFetch("/api/student-content", { method: "POST", body: JSON.stringify({ action, ...payload }), forceRefresh: true });
+}
+
+export async function getStudentContentDashboard() {
+  return apiFetch(studentContentPath("dashboard"), { forceRefresh: true });
+}
+
+export async function getStudentResources(params = {}) {
+  return apiFetch(studentContentPath("resources", params), { forceRefresh: true });
+}
+
+export async function getStudentResource(id) {
+  return apiFetch(studentContentPath("resources", { resourceId: id }), { forceRefresh: true });
+}
+
+export async function requestStudentFileAccess(resourceId, download = false) {
+  return studentContentPost(download ? "record_download" : "request_file_access", { resourceId });
+}
+
+export async function recordStudentResourceView(resourceId) {
+  return studentContentPost("record_resource_view", { resourceId });
+}
+
+export async function getStudentTargets(params = {}) {
+  return apiFetch(studentContentPath("targets", params), { forceRefresh: true });
+}
+
+export async function getStudentTarget(id) {
+  return apiFetch(studentContentPath("targets", { targetId: id }), { forceRefresh: true });
+}
+
+export async function updateStudentTargetProgress(targetId, payload) {
+  return studentContentPost("update_target_progress", { targetId, ...payload });
+}
+
+export async function getStudentClasses(params = {}) {
+  return apiFetch(studentContentPath("classes", params), { forceRefresh: true });
+}
+
+export async function joinStudentClass(classId) {
+  return studentContentPost("join_class", { classId });
+}
 export async function createPaymentOrder(variantId, billing) {
   return apiFetch("/api/payments/create-order", {
     method: "POST",
@@ -686,6 +810,9 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
+
+
 
 
 

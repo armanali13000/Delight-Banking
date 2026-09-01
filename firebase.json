@@ -1,4 +1,4 @@
-{
+﻿{
     "hosting":  {
                     "public":  "dist",
                     "ignore":  [
@@ -17,5 +17,8 @@
                 },
     "firestore":  {
                       "rules":  "firestore.rules"
-                  }
+                  },
+    "storage":  {
+                    "rules":  "storage.rules"
+                }
 }

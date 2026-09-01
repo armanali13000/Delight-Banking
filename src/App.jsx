@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { load } from "@cashfreepayments/cashfree-js";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
@@ -50,7 +50,28 @@ import {
   mutateAdminSubscription,
   reconcileAdminTransaction,
   updateAdminUser,
-  updateAdminUserStatus
+  updateAdminUserStatus,
+  duplicateAdminResource,
+  getAdminClasses,
+  getAdminResource,
+  getAdminResources,
+  getAdminTargets,
+  getStudentClasses,
+  getStudentContentDashboard,
+  getStudentResource,
+  getStudentResources,
+  getStudentTarget,
+  getStudentTargets,
+  joinStudentClass,
+  recordStudentResourceView,
+  requestStudentFileAccess,
+  saveAdminClass,
+  saveAdminResource,
+  saveAdminTarget,
+  setAdminClassStatus,
+  setAdminResourceStatus,
+  updateStudentTargetProgress,
+  uploadProtectedResourceFile
 } from "./services/dataService.js";
 
 const examCards = [
@@ -582,6 +603,64 @@ function ProfileForm({ profile, user, profileMessage, updateProfile, saveProfile
   return <form className="profile-edit-panel" onSubmit={saveProfile}><div><p className="eyebrow">Profile</p><h2>Student profile</h2><p>Keep your profile details updated for guidance, receipts, and exam planning.</p></div><div className="profile-form-grid"><label>Name<input value={profile.name || ""} onChange={(event) => updateProfile("name", event.target.value)} placeholder="Your full name" /></label><label>Phone<input value={profile.phone || ""} onChange={(event) => updateProfile("phone", event.target.value)} placeholder="Mobile number" /></label><label>City<input value={profile.city || ""} onChange={(event) => updateProfile("city", event.target.value)} placeholder="Your city" /></label><label>Target Exam<select value={profile.targetExam || exams[0]} onChange={(event) => updateProfile("targetExam", event.target.value)}>{exams.map((item) => <option key={item}>{item}</option>)}</select></label><label className="wide-field">Address<textarea rows="3" value={profile.address || ""} onChange={(event) => updateProfile("address", event.target.value)} placeholder="Address or study location" /></label></div><button className="primary-button" type="submit">{user ? "Save Profile" : "Login to Save"}</button>{profileMessage && <p className="form-message">{profileMessage}</p>}</form>;
 }
 
+function StudentContentDeskPage({ path }) {
+  const [user, setUser] = useState(null);
+  const [authMode, setAuthMode] = useState(null);
+  const [data, setData] = useState(null);
+  const [message, setMessage] = useState("Loading student content...");
+  const resourceMatch = path.match(/^\/student-desk\/resources\/([^/]+)$/);
+  const targetMatch = path.match(/^\/student-desk\/targets\/([^/]+)$/);
+  const view = resourceMatch ? "resource" : targetMatch ? "target" : path.includes("/resources") ? "resources" : path.includes("/classes") ? "classes" : path.includes("/targets") ? "targets" : "dashboard";
+  useEffect(() => listenToAuth(setUser), []);
+  async function loadContent() {
+    setMessage("Loading student content...");
+    try {
+      const result = resourceMatch ? await getStudentResource(decodeURIComponent(resourceMatch[1])) : targetMatch ? await getStudentTarget(decodeURIComponent(targetMatch[1])) : view === "resources" ? await getStudentResources() : view === "classes" ? await getStudentClasses() : view === "targets" ? await getStudentTargets() : await getStudentContentDashboard();
+      setData(result);
+      setMessage("");
+      if (resourceMatch) recordStudentResourceView(decodeURIComponent(resourceMatch[1])).catch(() => {});
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+  useEffect(() => { if (user) loadContent(); }, [user?.uid, path]);
+  async function logout() { await signOutUser(); setUser(null); }
+  if (!user) return <Shell user={user} onAuth={setAuthMode}><main className="desk-page"><section className="admin-gate"><div className="premium-card gate-card student-login-gate"><Brand small="Student Desk" /><h1>Login to open Student Desk</h1><p>Sign in to view protected resources, classes, targets, subscriptions, and payment history.</p><button className="primary-button" type="button" onClick={() => setAuthMode("signin")}>Login</button></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+  const resources = data?.resources?.items || data?.resources || [];
+  const targets = data?.targets?.items || data?.targets || [];
+  const classes = data?.classes?.items || data?.classes || [];
+  const resource = data?.resource;
+  const target = data?.target;
+  return <Shell user={user} onAuth={setAuthMode} onLogout={logout}><main className="desk-page"><section className="student-dashboard-shell" id="student-desk"><aside className="student-sidebar"><div className="sidebar-profile"><div className="profile-logo">{(user.displayName || user.email || "S").slice(0, 1).toUpperCase()}</div><h3>{user.displayName || "Student"}</h3><p>{user.email}</p></div><nav className="dashboard-menu"><a className={view === "dashboard" ? "active" : ""} href={`${appBase}student-desk`}>Dashboard</a><a className={view === "resources" || view === "resource" ? "active" : ""} href={`${appBase}student-desk/resources`}>Resources</a><a className={view === "classes" ? "active" : ""} href={`${appBase}student-desk/classes`}>Classes</a><a className={view === "targets" || view === "target" ? "active" : ""} href={`${appBase}student-desk/targets`}>Targets</a></nav><div className="subscription-box"><span className="menu-label">Active access</span>{data?.access?.active ? data.access.planIds.map((planId) => <span className="status-pill" key={planId}>{planId}</span>) : <p>No active content access found.</p>}</div></aside><div className="student-dashboard-main"><div className="dashboard-topbar"><div><p className="eyebrow">Student Desk</p><h1 className="page-title">{view === "resource" ? resource?.title || "Resource" : view === "target" ? target?.title || "Target" : titleLabel(view)}</h1></div><button className="ghost-button" type="button" onClick={loadContent}>Refresh</button></div>{message ? <AdminEmptyState title="Student content" text={message} onRetry={loadContent} /> : <>{view === "dashboard" && <div className="dashboard-view"><div className="desk-stats"><article className="stat-card"><span>Resources</span><strong>{resources.length}</strong></article><article className="stat-card"><span>Targets</span><strong>{targets.length}</strong></article><article className="stat-card"><span>Classes</span><strong>{classes.length}</strong></article></div><StudentResourceCards resources={resources} /><StudentTargetCards targets={targets} /><StudentClassCards classes={classes} /></div>}{view === "resources" && <StudentResourceCards resources={resources} />}{view === "classes" && <StudentClassCards classes={classes} />}{view === "targets" && <StudentTargetCards targets={targets} />}{view === "resource" && resource && <StudentResourceDetail resource={resource} />}{view === "target" && target && <StudentTargetDetail target={target} progress={data.progress} onSave={async (completedTaskIds) => { await updateStudentTargetProgress(target.id, { completedTaskIds }); await loadContent(); }} />}</>}</div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+}
+
+function StudentResourceCards({ resources = [] }) {
+  return <div className="resource-list">{resources.length ? resources.map((item) => <article className="resource-item" key={item.id}><header><div><h3>{item.title}</h3><p>{item.description || "Published resource"}</p></div><span className="status-pill">{titleLabel(item.type)}</span></header><div className="meta-row"><span>{item.planLabels?.join(", ") || "Plan access"}</span><span>{formatDate(item.publishAt || item.updatedAt)}</span></div><a className="text-button" href={`${appBase}student-desk/resources/${encodeURIComponent(item.id)}`}>Open Resource</a></article>) : <article className="resource-item"><h3>No resources available</h3><p>Published resources for your active plan will appear here.</p></article>}</div>;
+}
+
+function StudentResourceDetail({ resource }) {
+  const [message, setMessage] = useState("");
+  async function openFile(download = false) {
+    setMessage("Preparing secure link...");
+    try { const result = await requestStudentFileAccess(resource.id, download); window.open(result.file.url, "_blank", "noopener,noreferrer"); setMessage(""); } catch (error) { setMessage(error.message); }
+  }
+  return <section className="admin-profile-card"><AdminBackButton to="/student-desk/resources" label="Back to Resources" /><p>{resource.description}</p><dl className="student-details"><div><dt>Type</dt><dd>{titleLabel(resource.type)}</dd></div><div><dt>Plans</dt><dd>{resource.planLabels?.join(", ") || "Plan access"}</dd></div><div><dt>Published</dt><dd>{formatDate(resource.publishAt || resource.updatedAt)}</dd></div></dl><div className="form-actions">{resource.externalUrl && <a className="primary-button" href={resource.externalUrl} target="_blank" rel="noreferrer">Open Link</a>}{["pdf", "image"].includes(resource.type) && <><button className="primary-button" type="button" onClick={() => openFile(false)}>Open Secure File</button><button className="ghost-button" type="button" onClick={() => openFile(true)}>Download</button></>}</div>{message && <p className="form-message">{message}</p>}</section>;
+}
+
+function StudentTargetCards({ targets = [] }) {
+  return <div className="resource-list">{targets.length ? targets.map((item) => <article className="resource-item" key={item.id}><header><div><h3>{item.title}</h3><p>{item.description || `${item.tasks?.length || 0} tasks`}</p></div><span className="status-pill">{titleLabel(item.cadence)}</span></header><div className="meta-row"><span>{item.planLabels?.join(", ") || "Plan access"}</span><span>{formatDate(item.targetDate || item.weekStart)}</span></div><a className="text-button" href={`${appBase}student-desk/targets/${encodeURIComponent(item.id)}`}>Open Target</a></article>) : <article className="resource-item"><h3>No targets available</h3><p>Published targets for your plan will appear here.</p></article>}</div>;
+}
+
+function StudentTargetDetail({ target, progress = {}, onSave }) {
+  const [done, setDone] = useState(progress.completedTaskIds || []);
+  const complete = new Set(done);
+  return <section className="admin-profile-card"><AdminBackButton to="/student-desk/targets" label="Back to Targets" /><p>{target.description}</p><div className="target-task-list">{target.tasks?.map((task) => <label key={task.id}><input type="checkbox" checked={complete.has(task.id)} onChange={(event) => { const next = new Set(complete); if (event.target.checked) next.add(task.id); else next.delete(task.id); setDone([...next]); }} />{task.title}</label>)}</div><button className="primary-button" type="button" onClick={() => onSave(done)}>Save Progress</button></section>;
+}
+
+function StudentClassCards({ classes = [] }) {
+  async function join(item) { const result = await joinStudentClass(item.id); window.open(result.joinUrl, "_blank", "noopener,noreferrer"); }
+  return <div className="resource-list">{classes.length ? classes.map((item) => <article className="resource-item" key={item.id}><header><div><h3>{item.title}</h3><p>{item.description || "Plan-protected class"}</p></div><span className="status-pill">{titleLabel(item.status)}</span></header><div className="meta-row"><span>{formatDate(item.startAt)}</span><span>{item.host}</span></div><button className="text-button" type="button" onClick={() => join(item)}>Join/Open</button></article>) : <article className="resource-item"><h3>No classes available</h3><p>Upcoming or recorded classes for your plan will appear here.</p></article>}</div>;
+}
 function AboutPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
@@ -1200,6 +1279,96 @@ function AdminTransactionDetailPage({ admin, id }) {
   async function reconcile() { setMessage("Reconciling with Cashfree..."); try { await reconcileAdminTransaction(id); await load(); } catch (error) { setMessage(error.message); } }
   return <PermissionGate admin={admin} permission="payments.view"><AdminBackButton to="/admin/transactions" label="Back to Transactions" /><AdminPageHeader eyebrow="Transaction" title={transaction?.internalTransactionId || "Transaction details"} description="Safe payment identifiers only. Full gateway payloads and secrets are never shown." admin={admin} />{message ? <AdminEmptyState title="Transaction details" text={message} onRetry={load} /> : transaction && <><section className="admin-profile-card"><dl className="student-details admin-security-fields"><div><dt>Internal transaction ID</dt><dd><ShortValue value={transaction.internalTransactionId} /></dd></div><div><dt>Cashfree payment</dt><dd>{transaction.cashfreePaymentId || "None"}</dd></div><div><dt>Cashfree order</dt><dd>{transaction.cashfreeOrderId || "None"}</dd></div><div><dt>User</dt><dd>{transaction.userEmail || "Unknown"}</dd></div><div><dt>Amount</dt><dd>{formatPrice(transaction.amount)} {transaction.currency}</dd></div><div><dt>Status</dt><dd><AdminStatusBadge value={transaction.normalizedStatus} /></dd></div><div><dt>Cashfree status</dt><dd>{titleLabel(transaction.cashfreeStatus)}</dd></div><div><dt>Webhook</dt><dd>{transaction.webhookState === "server_verified" ? "Server verified" : titleLabel(transaction.webhookState)}</dd></div><div><dt>Signature verification</dt><dd>{transaction.signatureVerified ? "Verified" : "Not verified"}</dd></div><div><dt>Subscription activation</dt><dd>{transaction.subscriptionActivated ? "Activated" : "Not activated"}</dd></div><div><dt>Captured</dt><dd>{formatDate(transaction.capturedAt)}</dd></div><div><dt>Last reconciliation</dt><dd>{formatDate(transaction.lastReconciledAt)}</dd></div></dl>{adminHasPermission(admin, "payments.reconcile") && <button className="primary-button" type="button" onClick={reconcile}>Reconcile with Cashfree</button>}</section><DetailTable title="Safe event timeline" rows={detail.timeline || []} columns={[{ key: "label", label: "Event" }, { key: "at", label: "Date", render: (row) => formatDate(row.at) }]} /></>}</PermissionGate>;
 }
+function csvList(value) {
+  if (Array.isArray(value)) return value.join(", ");
+  return value || "";
+}
+
+function splitList(value) {
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function contentPlanOptions() {
+  return plans.map((plan) => ({ value: plan.planId, label: plan.name === "PICK UP" ? "PICK UP DAILY TARGETS" : plan.name }));
+}
+
+function planCheckboxes(selected = [], onChange) {
+  const current = new Set(selected);
+  return <div className="content-check-grid">{contentPlanOptions().map((option) => <label key={option.value}><input type="checkbox" checked={current.has(option.value)} onChange={(event) => { const next = new Set(current); if (event.target.checked) next.add(option.value); else next.delete(option.value); onChange([...next]); }} />{option.label}</label>)}</div>;
+}
+
+function ContentEditorDialog({ open, kind, item, onClose, onSave, onUpload }) {
+  const [form, setForm] = useState({});
+  const [message, setMessage] = useState("");
+  const [uploadPercent, setUploadPercent] = useState(0);
+  useEffect(() => { if (open) { setForm(item || { status: "draft", type: "external_link", mode: "live", cadence: "daily", accessScope: "plan", planIds: [] }); setMessage(""); setUploadPercent(0); } }, [open, item, kind]);
+  if (!open) return null;
+  const title = `${item?.id ? "Edit" : "Create"} ${kind}`;
+  async function submit(event) {
+    event.preventDefault();
+    setMessage("Saving...");
+    try {
+      const payload = kind === "target" ? { ...form, tasks: splitList(form.taskText).map((task, index) => ({ id: `task-${index + 1}`, title: task })) } : form;
+      await onSave(payload);
+      onClose();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+  async function uploadFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setMessage("Uploading...");
+    try {
+      const uploaded = await onUpload(file, { kind }, setUploadPercent);
+      setForm((current) => ({ ...current, ...uploaded, type: file.type === "application/pdf" ? "pdf" : "image" }));
+      setMessage("Upload ready. Save the resource to attach it.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="confirmation-dialog admin-management-dialog content-editor" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><h3>{title}</h3><form onSubmit={submit}><label>Title<input value={form.title || ""} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label>Description<textarea rows="3" value={form.description || ""} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>{kind === "resource" && <><label>Type<select value={form.type || "external_link"} onChange={(event) => setForm({ ...form, type: event.target.value })}><option value="external_link">External link</option><option value="video">Video</option><option value="pdf">PDF</option><option value="image">Image</option></select></label><label>Secure URL<input value={form.externalUrl || ""} onChange={(event) => setForm({ ...form, externalUrl: event.target.value })} placeholder="https://" /></label><label>PDF/Image upload<input type="file" accept="application/pdf,image/*" onChange={uploadFile} /></label>{form.storagePath && <p className="form-message">Attached: {form.fileName || form.storagePath}</p>}{uploadPercent > 0 && uploadPercent < 100 && <p className="form-message">Upload {uploadPercent}%</p>}<label>Tags<input value={csvList(form.tags)} onChange={(event) => setForm({ ...form, tags: splitList(event.target.value) })} /></label></>}{kind === "target" && <><label>Cadence<select value={form.cadence || "daily"} onChange={(event) => setForm({ ...form, cadence: event.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label><label>Target date<input type="date" value={(form.targetDate || "").slice(0, 10)} onChange={(event) => setForm({ ...form, targetDate: event.target.value })} /></label><label>Tasks<textarea rows="5" value={form.taskText ?? (form.tasks || []).map((task) => task.title).join(", ")} onChange={(event) => setForm({ ...form, taskText: event.target.value })} /></label></>}{kind === "class" && <><label>Mode<select value={form.mode || "live"} onChange={(event) => setForm({ ...form, mode: event.target.value })}><option value="live">Live</option><option value="recorded">Recorded</option></select></label><label>Status<select value={form.status || "upcoming"} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="recorded">Recorded</option><option value="cancelled">Cancelled</option></select></label><label>Start<input type="datetime-local" value={(form.startAt || "").slice(0, 16)} onChange={(event) => setForm({ ...form, startAt: event.target.value })} /></label><label>End<input type="datetime-local" value={(form.endAt || "").slice(0, 16)} onChange={(event) => setForm({ ...form, endAt: event.target.value })} /></label><label>Meeting URL<input value={form.meetingUrl || ""} onChange={(event) => setForm({ ...form, meetingUrl: event.target.value })} placeholder="https://" /></label><label>Recorded URL<input value={form.recordedVideoUrl || ""} onChange={(event) => setForm({ ...form, recordedVideoUrl: event.target.value })} placeholder="https://" /></label></>}{kind !== "class" && <label>Status<select value={form.status || "draft"} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="draft">Draft</option><option value="scheduled">Scheduled</option><option value="published">Published</option><option value="unpublished">Unpublished</option><option value="archived">Archived</option></select></label>}<label>Publish date<input type="datetime-local" value={(form.publishAt || "").slice(0, 16)} onChange={(event) => setForm({ ...form, publishAt: event.target.value })} /></label><div><span className="menu-label">Assigned plans</span>{planCheckboxes(form.planIds || [], (planIds) => setForm({ ...form, planIds }))}</div><div className="form-actions"><button className="ghost-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Save</button></div>{message && <p className="form-message">{message}</p>}</form></section></div>;
+}
+
+function AdminResourcesPage({ admin }) {
+  const [filters, setFilters] = useState({});
+  const [data, setData] = useState(null);
+  const [message, setMessage] = useState("Loading resources...");
+  const [editing, setEditing] = useState(null);
+  async function load() { setMessage("Loading resources..."); try { const result = await getAdminResources(filters); setData(result.resources); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { load(); }, [JSON.stringify(filters)]);
+  async function save(payload) { await saveAdminResource(payload); await load(); }
+  async function status(id, next) { await setAdminResourceStatus(id, next); await load(); }
+  async function duplicate(id) { await duplicateAdminResource(id); await load(); }
+  return <PermissionGate admin={admin} permission="resources.view"><AdminPageHeader eyebrow="Content" title="Resources" description="Protected learning content assigned to paid plans and served to students through server-verified access." admin={admin} /><section className="admin-card admin-management-toolbar phase3-toolbar"><div className="admin-filter-grid"><label>Search<input value={filters.search || ""} onChange={(event) => setFilters({ ...filters, search: event.target.value })} /></label><label>Status<select value={filters.status || ""} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All</option><option value="draft">Draft</option><option value="scheduled">Scheduled</option><option value="published">Published</option><option value="archived">Archived</option></select></label><label>Type<select value={filters.type || ""} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">All</option><option value="pdf">PDF</option><option value="image">Image</option><option value="external_link">External link</option><option value="video">Video</option></select></label></div>{adminHasPermission(admin, "resources.manage") && <button className="primary-button" type="button" onClick={() => setEditing({})}>Create Resource</button>}</section>{message ? <AdminEmptyState title="Resources" text={message} onRetry={load} /> : <DetailTable title="Learning resources" rows={data?.items || []} columns={[{ key: "resourceId", label: "ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.resourceId} /> }, { key: "title", label: "Title" }, { key: "type", label: "Type", render: (row) => titleLabel(row.type) }, { key: "planLabels", label: "Plans", render: (row) => row.planLabels?.join(", ") || "Unassigned" }, { key: "status", label: "Status", className: "admin-nowrap", render: (row) => <AdminStatusBadge value={row.status} /> }, { key: "analytics", label: "Views", render: (row) => row.analytics?.views || 0 }, { key: "updatedAt", label: "Updated", render: (row) => formatDate(row.updatedAt) }, { key: "id", label: "Actions", className: "admin-nowrap", render: (row) => <div className="table-actions"><button className="text-button" type="button" onClick={() => setEditing(row)}>Edit</button><button className="text-button" type="button" onClick={() => duplicate(row.id)}>Duplicate</button><button className="text-button" type="button" onClick={() => status(row.id, row.status === "published" ? "unpublished" : "published")}>{row.status === "published" ? "Unpublish" : "Publish"}</button><button className="text-button" type="button" onClick={() => status(row.id, "archived")}>Archive</button></div> }]} /> }<ContentEditorDialog open={Boolean(editing)} kind="resource" item={editing} onClose={() => setEditing(null)} onSave={save} onUpload={uploadProtectedResourceFile} /></PermissionGate>;
+}
+
+function AdminResourceDetailPage({ admin, id }) {
+  const [detail, setDetail] = useState(null);
+  const [message, setMessage] = useState("Loading resource...");
+  async function load() { setMessage("Loading resource..."); try { setDetail(await getAdminResource(id)); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { load(); }, [id]);
+  const resource = detail?.resource;
+  return <PermissionGate admin={admin} permission="resources.view"><AdminBackButton to="/admin/resources" label="Back to Resources" /><AdminPageHeader eyebrow="Resource" title={resource?.title || "Resource details"} description="Protected content metadata, assignment, storage path, and safe activity." admin={admin} />{message ? <AdminEmptyState title="Resource details" text={message} onRetry={load} /> : resource && <><section className="admin-profile-card"><dl className="student-details admin-security-fields"><div><dt>Resource ID</dt><dd><ShortValue value={resource.resourceId} /></dd></div><div><dt>Type</dt><dd>{titleLabel(resource.type)}</dd></div><div><dt>Status</dt><dd><AdminStatusBadge value={resource.status} /></dd></div><div><dt>Access</dt><dd>{resource.accessScope === "public" ? "Public" : "Plan assigned"}</dd></div><div><dt>Plans</dt><dd>{resource.planLabels?.join(", ") || "Unassigned"}</dd></div><div><dt>Storage path</dt><dd><ShortValue value={resource.storagePath || "No file attached"} /></dd></div><div><dt>Secure URL</dt><dd>{resource.externalUrl ? <a href={resource.externalUrl} target="_blank" rel="noreferrer">Open link</a> : "None"}</dd></div><div><dt>Views</dt><dd>{resource.analytics?.views || 0}</dd></div><div><dt>Downloads</dt><dd>{resource.analytics?.downloads || 0}</dd></div><div><dt>Updated</dt><dd>{formatDate(resource.updatedAt)}</dd></div></dl></section><DetailTable title="Safe content events" rows={detail.events || []} columns={[{ key: "action", label: "Action" }, { key: "uid", label: "User", className: "admin-id-cell", render: (row) => <ShortValue value={row.uid} /> }, { key: "createdAt", label: "Date", render: (row) => formatDate(row.createdAt) }]} /></>}</PermissionGate>;
+}
+function AdminTargetsPage({ admin }) {
+  const [data, setData] = useState(null);
+  const [message, setMessage] = useState("Loading targets...");
+  const [editing, setEditing] = useState(null);
+  async function load() { setMessage("Loading targets..."); try { const result = await getAdminTargets(); setData(result.targets); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { load(); }, []);
+  return <PermissionGate admin={admin} permission="resources.view"><AdminPageHeader eyebrow="Execution" title="Daily and weekly targets" description="Plan-assigned preparation targets for active students." admin={admin} /><section className="admin-card admin-management-toolbar"><button className="primary-button" type="button" onClick={() => setEditing({})}>Create Target</button></section>{message ? <AdminEmptyState title="Targets" text={message} onRetry={load} /> : <DetailTable title="Targets" rows={data?.items || []} columns={[{ key: "targetId", label: "ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.targetId} /> }, { key: "title", label: "Title" }, { key: "cadence", label: "Cadence" }, { key: "planLabels", label: "Plans", render: (row) => row.planLabels?.join(", ") || "Unassigned" }, { key: "tasks", label: "Tasks", render: (row) => row.tasks?.length || 0 }, { key: "status", label: "Status", render: (row) => <AdminStatusBadge value={row.status} /> }, { key: "targetDate", label: "Date", render: (row) => formatDate(row.targetDate || row.weekStart) }, { key: "id", label: "Action", render: (row) => <button className="text-button" type="button" onClick={() => setEditing(row)}>Edit</button> }]} />}<ContentEditorDialog open={Boolean(editing)} kind="target" item={editing} onClose={() => setEditing(null)} onSave={async (payload) => { await saveAdminTarget(payload); await load(); }} /></PermissionGate>;
+}
+
+function AdminClassesPage({ admin }) {
+  const [data, setData] = useState(null);
+  const [message, setMessage] = useState("Loading classes...");
+  const [editing, setEditing] = useState(null);
+  async function load() { setMessage("Loading classes..."); try { const result = await getAdminClasses(); setData(result.classes); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { load(); }, []);
+  async function status(id, next) { await setAdminClassStatus(id, next); await load(); }
+  return <PermissionGate admin={admin} permission="resources.view"><AdminPageHeader eyebrow="Classes" title="Live and recorded classes" description="Schedule protected sessions and publish recordings for entitled students." admin={admin} /><section className="admin-card admin-management-toolbar"><button className="primary-button" type="button" onClick={() => setEditing({})}>Create Class</button></section>{message ? <AdminEmptyState title="Classes" text={message} onRetry={load} /> : <DetailTable title="Classes" rows={data?.items || []} columns={[{ key: "classId", label: "ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.classId} /> }, { key: "title", label: "Title" }, { key: "mode", label: "Mode" }, { key: "planLabels", label: "Plans", render: (row) => row.planLabels?.join(", ") || "Unassigned" }, { key: "startAt", label: "Start", render: (row) => formatDate(row.startAt) }, { key: "status", label: "Status", render: (row) => <AdminStatusBadge value={row.status} /> }, { key: "id", label: "Actions", className: "admin-nowrap", render: (row) => <div className="table-actions"><button className="text-button" type="button" onClick={() => setEditing(row)}>Edit</button><button className="text-button" type="button" onClick={() => status(row.id, "cancelled")}>Cancel</button><button className="text-button" type="button" onClick={() => status(row.id, "recorded")}>Recorded</button></div> }]} />}<ContentEditorDialog open={Boolean(editing)} kind="class" item={editing} onClose={() => setEditing(null)} onSave={async (payload) => { await saveAdminClass(payload); await load(); }} /></PermissionGate>;
+}
 function AdminModulePlaceholder({ admin, title, permission }) {
   return <PermissionGate admin={admin} permission={permission}><AdminPageHeader eyebrow="Admin Module" title={title} description="This module is routed and protected. Operational tools for this area continue in the next build phase." admin={admin} /><AdminEmptyState title="Module ready" text="Dashboard analytics are live; this detailed module will expand in the next admin phase." /></PermissionGate>;
 }
@@ -1216,9 +1385,10 @@ function AdminPage({ path }) {
   const subscriptionDetailMatch = path.match(/^\/admin\/subscriptions\/([^/]+)$/);
   const orderDetailMatch = path.match(/^\/admin\/orders\/([^/]+)$/);
   const transactionDetailMatch = path.match(/^\/admin\/transactions\/([^/]+)$/);
+  const resourceDetailMatch = path.match(/^\/admin\/resources\/([^/]+)$/);
   const navItem = adminNavItems.find(([itemPath]) => itemPath === path);
-  const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : subscriptionDetailMatch ? "/admin/subscriptions" : orderDetailMatch ? "/admin/orders" : transactionDetailMatch ? "/admin/transactions" : path;
-  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
+  const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : subscriptionDetailMatch ? "/admin/subscriptions" : orderDetailMatch ? "/admin/orders" : transactionDetailMatch ? "/admin/transactions" : resourceDetailMatch ? "/admin/resources" : path;
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
   return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
@@ -1238,11 +1408,19 @@ export default function App() {
   if (path === "/admin/login") return <AdminLoginPage />;
   if (path === "/admin/access-denied") return <AdminAccessDeniedPage />;
   if (path.startsWith("/admin")) return <AdminPage path={path.replace(/\/$/, "") || "/admin"} />;
-  if (path.endsWith("/student-desk") || url.hash.includes("student-desk")) return <StudentDeskPage />;
+  if (path.startsWith("/student-desk") || url.hash.includes("student-desk")) return <StudentContentDeskPage path={path.replace(/\/$/, "") || "/student-desk"} />;
   if (path.endsWith("/about")) return <AboutPage />;
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;
 }
+
+
+
+
+
+
+
+
 
 
 

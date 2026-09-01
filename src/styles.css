@@ -2858,3 +2858,61 @@ body.mobile-nav-locked {
     max-width: 12rem;
   }
 }
+
+.content-check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.55rem 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.content-check-grid label,
+.target-task-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.content-check-grid input,
+.target-task-list input {
+  width: auto;
+  min-width: 16px;
+}
+
+.content-editor {
+  width: min(720px, calc(100vw - 2rem));
+  max-height: min(86vh, 820px);
+  overflow: auto;
+}
+
+.table-actions,
+.admin-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: max-content;
+}
+
+.target-task-list {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0;
+}
+
+.dashboard-menu a {
+  display: block;
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .content-check-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .table-actions {
+    min-width: 0;
+  }
+}

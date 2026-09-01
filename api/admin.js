@@ -1,4 +1,4 @@
-import { getDb, serverTimestamp } from "../server/_lib/firebaseAdmin.js";
+﻿import { getDb, serverTimestamp } from "../server/_lib/firebaseAdmin.js";
 import { hasPermission, requireAdmin, requireAdminRole, safeAdmin, writeAdminActivityLog } from "../server/_lib/adminAuth.js";
 import { getAdminDashboardOverview } from "../server/_lib/adminDashboard.js";
 import {
@@ -32,9 +32,24 @@ import {
   suspendAdministrator,
   updateAdministratorRole
 } from "../server/_lib/adminManagement.js";
+import {
+  createUploadSession,
+  duplicateAdminResource,
+  getAdminClass,
+  getAdminResource,
+  getAdminTarget,
+  listAdminClasses,
+  listAdminResources,
+  listAdminTargets,
+  saveAdminClass,
+  saveAdminResource,
+  saveAdminTarget,
+  setAdminClassStatus,
+  setAdminResourceStatus
+} from "../server/_lib/content.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 
-const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans"]);
+const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes"]);
 const ACTIONS = new Set([
   "update_admin_profile",
   "update_user",
@@ -50,7 +65,19 @@ const ACTIONS = new Set([
   "revoke_subscription",
   "reactivate_subscription",
   "reconcile_transaction",
-  "add_note"
+  "add_note",
+  "save_resource",
+  "duplicate_resource",
+  "publish_resource",
+  "schedule_resource",
+  "unpublish_resource",
+  "archive_resource",
+  "create_upload_session",
+  "save_target",
+  "save_class",
+  "cancel_class",
+  "record_class",
+  "archive_class"
 ]);
 
 function cleanText(value, max = 240) {
@@ -172,6 +199,21 @@ async function handleGet(req, res, resource) {
     sendJson(res, 200, { plans: (await import("../server/_lib/plans.js")).plans });
     return;
   }
+  if (resource === "resources") {
+    const id = queryId(req, "resourceId");
+    sendJson(res, 200, id ? await getAdminResource(admin, id) : await listAdminResources(admin, req.query || {}));
+    return;
+  }
+  if (resource === "targets") {
+    const id = queryId(req, "targetId");
+    sendJson(res, 200, id ? await getAdminTarget(admin, id) : await listAdminTargets(admin, req.query || {}));
+    return;
+  }
+  if (resource === "classes") {
+    const id = queryId(req, "classId");
+    sendJson(res, 200, id ? await getAdminClass(admin, id) : await listAdminClasses(admin, req.query || {}));
+    return;
+  }
   notFound();
 }
 
@@ -214,6 +256,19 @@ async function handlePost(req, res) {
   if (action === "reactivate_subscription") return sendJson(res, 200, await reactivateSubscription(admin, cleanText(body.subscriptionId, 240), body));
   if (action === "reconcile_transaction") return sendJson(res, 200, await reconcileTransaction(admin, cleanText(body.transactionId, 240)));
   if (action === "add_note") return sendJson(res, 200, await addAdminNote(admin, cleanText(body.entityType, 80), cleanText(body.entityId, 240), body));
+  if (action === "save_resource") return sendJson(res, 200, await saveAdminResource(admin, body));
+  if (action === "duplicate_resource") return sendJson(res, 200, await duplicateAdminResource(admin, cleanText(body.resourceId, 240)));
+  if (["publish_resource", "schedule_resource", "unpublish_resource", "archive_resource"].includes(action)) {
+    const nextStatus = action === "publish_resource" ? "published" : action === "schedule_resource" ? "scheduled" : action.replace("_resource", "");
+    return sendJson(res, 200, await setAdminResourceStatus(admin, cleanText(body.resourceId, 240), nextStatus));
+  }
+  if (action === "create_upload_session") return sendJson(res, 200, await createUploadSession(admin, body));
+  if (action === "save_target") return sendJson(res, 200, await saveAdminTarget(admin, body));
+  if (action === "save_class") return sendJson(res, 200, await saveAdminClass(admin, body));
+  if (["cancel_class", "record_class", "archive_class"].includes(action)) {
+    const nextStatus = action === "cancel_class" ? "cancelled" : action === "record_class" ? "recorded" : "archived";
+    return sendJson(res, 200, await setAdminClassStatus(admin, cleanText(body.classId, 240), nextStatus));
+  }
   badRequest("Invalid admin API action.");
 }
 
@@ -228,4 +283,6 @@ export default async function handler(req, res) {
     handleError(res, error);
   }
 }
+
+
 

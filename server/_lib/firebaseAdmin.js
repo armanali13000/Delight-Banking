@@ -1,4 +1,4 @@
-import { cert, getApp, getApps, initializeApp } from "firebase-admin/app";
+﻿import { cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 
@@ -35,7 +35,8 @@ export function getAdminApp() {
         projectId: required("FIREBASE_PROJECT_ID"),
         clientEmail: required("FIREBASE_CLIENT_EMAIL"),
         privateKey: privateKey()
-      })
+      }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${required("FIREBASE_PROJECT_ID")}.appspot.com`
     });
   } catch (cause) {
     const error = new Error("Firebase Admin configuration is invalid.");
@@ -71,4 +72,5 @@ export async function requireUser(req) {
 
 export const serverTimestamp = FieldValue.serverTimestamp;
 export const fieldValue = FieldValue;
+
 
