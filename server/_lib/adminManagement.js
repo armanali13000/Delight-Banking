@@ -237,9 +237,14 @@ export async function promoteAdministrator(req, body) {
   const admin = await requireRecentSuperAdmin(req);
   const role = validateLimitedRole(body.role);
   const targetUid = cleanText(body.uid, 128);
+  const reason = cleanText(body.reason, 500);
   const confirmation = cleanText(body.confirmation, 40);
   if (!targetUid) throw adminError(400, "Target Firebase UID is required.", "Select a verified user before granting administrator access.", "TARGET_UID_REQUIRED");
+  if (reason.length < 3) throw adminError(400, "A reason is required.", "Enter a short reason for the audit log.", "PROMOTION_REASON_REQUIRED");
   if (confirmation !== "ADD ADMIN") throw adminError(400, "Type ADD ADMIN to confirm administrator promotion.", "Type ADD ADMIN to confirm administrator promotion.", "CONFIRMATION_REQUIRED");
+  const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.map((item) => cleanText(item, 120)).filter(Boolean) : [];
+  const grantedPermissions = permissionsForRole(role, requestedPermissions);
+  if (!grantedPermissions.length) throw adminError(400, "Select at least one valid permission.", "Select at least one permission for this role.", "PROMOTION_PERMISSIONS_REQUIRED");
 
   let user;
   try {
@@ -270,7 +275,7 @@ export async function promoteAdministrator(req, body) {
       displayName: user.displayName || user.email || "Administrator",
       role,
       status: "active",
-      permissions: permissionsForRole(role),
+      permissions: grantedPermissions,
       provider: safeProvider(user),
       createdBy: admin.uid,
       createdByEmail: admin.email || "",
@@ -287,7 +292,7 @@ export async function promoteAdministrator(req, body) {
     }, { merge: true });
     wroteRecord = true;
 
-    await writeManagementLog({ admin, action: "admin.administrator.promoted", target: { uid: user.uid, email: user.email || "" }, previousRole: existing?.role || "", newRole: role, previousStatus: existing?.status || "", newStatus: "active" });
+    await writeManagementLog({ admin, action: "admin.administrator.promoted", target: { uid: user.uid, email: user.email || "" }, previousRole: existing?.role || "", newRole: role, previousStatus: existing?.status || "", newStatus: "active", reason });
 
     const [verifiedUser, savedSnap] = await Promise.all([appAuth().getUser(user.uid), ref.get()]);
     const saved = savedSnap.data() || {};

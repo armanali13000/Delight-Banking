@@ -504,7 +504,7 @@ export async function getAdministrator(uid) {
 }
 
 export async function searchAdminCandidate(email) {
-  return apiFetch(adminApiPath("users", { search: "1", email }), { forceRefresh: true });
+  return apiFetch(adminApiPath("administrators", { search: "1", email }), { forceRefresh: true });
 }
 
 export async function promoteAdministrator(payload) {

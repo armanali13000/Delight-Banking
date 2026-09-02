@@ -1073,33 +1073,115 @@ function statusLabel(status) {
   return statusLabels[status] || String(status || "Unknown");
 }
 
+const adminPermissionCatalog = [
+  { group: "Dashboard", items: [["admin.dashboard.view", "Dashboard overview"], ["admin.activity_logs.view", "Activity logs"]] },
+  { group: "Users", items: [["users.view", "View users"], ["users.manage", "Manage users"]] },
+  { group: "Commerce", items: [["subscriptions.view", "View subscriptions"], ["subscriptions.manage", "Manage subscriptions"], ["orders.view", "View orders"], ["payments.view", "View payments"], ["payments.view_limited", "Limited payments"], ["payments.reconcile", "Reconcile payments"], ["refunds.view", "View refunds"], ["reports.view", "View reports"], ["reports.export", "Export reports"]] },
+  { group: "Content", items: [["plans.view", "View plans"], ["plans.manage", "Manage plans"], ["resources.view", "View resources"], ["resources.manage", "Manage resources"], ["targets.view", "View targets"], ["targets.manage", "Manage targets"], ["classes.view", "View classes"], ["classes.manage", "Manage classes"]] },
+  { group: "Support", items: [["support.view", "View support"], ["support.manage", "Manage support"]] }
+];
+
+const rolePermissionDefaults = {
+  admin: ["admin.dashboard.view", "users.view", "users.manage", "subscriptions.view", "subscriptions.manage", "orders.view", "payments.view", "payments.reconcile", "refunds.view", "plans.view", "resources.view", "resources.manage", "support.view", "support.manage", "reports.view", "reports.export"],
+  support: ["admin.dashboard.view", "users.view", "subscriptions.view", "orders.view", "payments.view_limited", "support.view", "support.manage"],
+  content_manager: ["admin.dashboard.view", "plans.view", "resources.view", "resources.manage", "targets.view", "targets.manage", "classes.view", "classes.manage"]
+};
+
+function allowedPermissionsForRole(role) {
+  return new Set(rolePermissionDefaults[role] || []);
+}
+
+function defaultPermissionsForRole(role) {
+  return [...(rolePermissionDefaults[role] || [])];
+}
+
 function AddAdministratorDialog({ open, onClose, onAdded }) {
-  const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [candidate, setCandidate] = useState(null);
   const [role, setRole] = useState("admin");
+  const [selectedPermissions, setSelectedPermissions] = useState(defaultPermissionsForRole("admin"));
+  const [reason, setReason] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [reauthPassword, setReauthPassword] = useState("");
   const [needsReauth, setNeedsReauth] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  useEffect(() => { if (!open) { setStep(1); setEmail(""); setCandidate(null); setRole("admin"); setConfirmation(""); setReauthPassword(""); setNeedsReauth(false); setMessage(""); } }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setEmail("");
+      setCandidate(null);
+      setRole("admin");
+      setSelectedPermissions(defaultPermissionsForRole("admin"));
+      setReason("");
+      setConfirmation("");
+      setReauthPassword("");
+      setNeedsReauth(false);
+      setConfirmOpen(false);
+      setMessage("");
+    }
+  }, [open]);
+
   if (!open) return null;
+
+  function changeRole(nextRole) {
+    setRole(nextRole);
+    setSelectedPermissions(defaultPermissionsForRole(nextRole));
+  }
+
   async function findCandidate(event) {
     event.preventDefault();
     setLoading(true);
     setMessage("");
-    try { const trimmed = email.trim(); if (!trimmed || !trimmed.includes("@")) throw new Error("Enter a valid exact email address."); const result = await searchAdminCandidate(trimmed); setCandidate(result.user); setStep(2); }
-    catch (error) { setMessage(error.message); }
-    finally { setLoading(false); }
+    setCandidate(null);
+    try {
+      const trimmed = email.trim();
+      if (!trimmed || !trimmed.includes("@")) throw new Error("Enter a valid exact email address.");
+      const result = await searchAdminCandidate(trimmed);
+      const nextCandidate = result.user || result.candidates?.[0] || null;
+      if (!nextCandidate) throw new Error("No verified user was found for that exact email address.");
+      setCandidate(nextCandidate);
+      setMessage("");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
   }
+
+  function togglePermission(permission) {
+    const allowed = allowedPermissionsForRole(role);
+    if (!allowed.has(permission)) return;
+    setSelectedPermissions((current) => current.includes(permission) ? current.filter((item) => item !== permission) : [...current, permission]);
+  }
+
+  function requestPromotion() {
+    if (!candidate?.uid) { setMessage("Select a verified user before granting administrator access."); return; }
+    if (cannotPromote) { setMessage(promoteReason); return; }
+    if (reason.trim().length < 3) { setMessage("Enter a short reason for the audit log."); return; }
+    if (!selectedPermissions.length) { setMessage("Select at least one permission for this role."); return; }
+    if (confirmation !== "ADD ADMIN") { setMessage("Type ADD ADMIN to confirm administrator promotion."); return; }
+    setConfirmOpen(true);
+  }
+
   async function submitPromotion() {
+    setConfirmOpen(false);
     setLoading(true);
     setMessage("");
-    try { if (!candidate?.uid) throw new Error("Select a verified user before granting administrator access."); const result = await promoteAdministrator({ uid: candidate.uid, role, confirmation }); setMessage(result.message || `Administrator access granted successfully. Role: ${roleLabel(role)}. The new administrator must sign out and sign in again.`); onAdded?.(result.administrator); setStep(2); }
-    catch (error) { setNeedsReauth(error.code === "RECENT_LOGIN_REQUIRED" || error.message.includes("Recent authentication")); setMessage(error.message); }
-    finally { setLoading(false); }
+    try {
+      if (!candidate?.uid) throw new Error("Select a verified user before granting administrator access.");
+      const result = await promoteAdministrator({ uid: candidate.uid, role, permissions: selectedPermissions, reason, confirmation });
+      setMessage(result.message || "Administrator access granted successfully. The new administrator must sign out and sign in again.");
+      onAdded?.(result.administrator);
+    } catch (error) {
+      setNeedsReauth(error.code === "RECENT_LOGIN_REQUIRED" || error.message.includes("Recent authentication"));
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
   }
+
   async function refreshAdminSession() {
     setLoading(true);
     setMessage("");
@@ -1111,10 +1193,61 @@ function AddAdministratorDialog({ open, onClose, onAdded }) {
     } catch (error) { setMessage(error.message); }
     finally { setLoading(false); }
   }
+
   const cannotPromote = candidate && (!candidate.emailVerified || candidate.disabled || candidate.adminStatus === "active");
-  const promoteReason = !candidate ? "" : !candidate.emailVerified ? "Cannot promote: email is not verified." : candidate.disabled ? "Cannot promote: Firebase account is disabled." : candidate.adminStatus === "active" ? "Cannot promote: this user is already an active administrator." : candidate.adminStatus ? `Ready to promote. Previous admin status: ${candidate.adminStatus}.` : "Ready to promote.";
-  const permissions = candidate ? limitedAdminRoles.includes(role) ? role === "admin" ? ["users.view", "users.manage", "subscriptions.view", "subscriptions.manage", "orders.view", "payments.view", "payments.reconcile", "refunds.view", "plans.view", "resources.manage", "support.manage", "reports.view", "reports.export"] : role === "support" ? ["users.view", "subscriptions.view", "payments.view_limited", "support.manage"] : ["plans.view", "resources.manage", "targets.manage", "classes.manage"] : [] : [];
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="admin-management-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close dialog">x</button><p className="eyebrow">Add Administrator</p><h2>Promote an existing verified user</h2>{step === 1 && <form onSubmit={findCandidate} className="admin-dialog-step"><label>Exact verified email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@example.com" required /></label><button className="primary-button" disabled={loading} type="submit">Find Account</button></form>}{step >= 2 && candidate && <div className="admin-dialog-step"><dl className="student-details"><div><dt>Name</dt><dd>{candidate.displayName}</dd></div><div><dt>Email</dt><dd>{candidate.email}</dd></div><div><dt>Verified</dt><dd>{candidate.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Provider</dt><dd>{candidate.provider}</dd></div><div><dt>Created</dt><dd>{formatDate(candidate.createdAt)}</dd></div><div><dt>Admin status</dt><dd>{candidate.adminStatus || "Not administrator"}</dd></div></dl>{promoteReason && <p className={`form-message ${cannotPromote ? "" : "neutral"}`}>{promoteReason}</p>}{step === 2 && !cannotPromote && <button className="primary-button" type="button" onClick={() => setStep(3)}>Continue</button>}</div>}{step >= 3 && candidate && <div className="admin-dialog-step"><label>Limited administrator role<select value={role} onChange={(event) => setRole(event.target.value)}>{limitedAdminRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>{step === 3 && <button className="primary-button" type="button" onClick={() => setStep(4)}>Review Permissions</button>}</div>}{step >= 4 && <div className="admin-dialog-step"><h3>Permissions</h3><div className="permission-list">{permissions.map((permission) => <span key={permission}>{permission}</span>)}</div>{step === 4 && <button className="primary-button" type="button" onClick={() => setStep(5)}>Continue to Confirm</button>}</div>}{step === 5 && <div className="admin-dialog-step"><label>Type ADD ADMIN to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>{needsReauth && <div className="admin-reauth-box"><label>Password for email admins<input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} placeholder="Google admins can leave this blank" /></label><button className="ghost-button" type="button" disabled={loading} onClick={refreshAdminSession}>Refresh Session</button></div>}<button className="primary-button" type="button" disabled={loading || cannotPromote || !candidate?.uid || confirmation !== "ADD ADMIN"} onClick={submitPromotion}>{loading ? "Granting..." : "Grant Access"}</button></div>}{message && <p className="form-message">{message}</p>}</section></div>;
+  const promoteReason = !candidate ? "" : !candidate.emailVerified ? "Cannot promote: email is not verified." : candidate.disabled ? "Cannot promote: Firebase account is disabled." : candidate.adminStatus === "active" ? "Cannot promote: this user is already an active administrator." : candidate.adminStatus ? "Ready to promote. Previous admin status: " + candidate.adminStatus + "." : "Ready to promote.";
+  const allowed = allowedPermissionsForRole(role);
+  const grantDisabled = loading || cannotPromote || !candidate?.uid || reason.trim().length < 3 || !selectedPermissions.length || confirmation !== "ADD ADMIN";
+
+  return <>
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="admin-management-dialog add-admin-dialog" role="dialog" aria-modal="true" aria-labelledby="add-admin-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="add-admin-header">
+          <div>
+            <p className="eyebrow">Add Administrator</p>
+            <h2 id="add-admin-title">Promote an existing verified user</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog">x</button>
+        </header>
+
+        <div className="add-admin-body">
+          <form onSubmit={findCandidate} className="admin-dialog-step add-admin-search">
+            <label>Exact verified email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@example.com" required /></label>
+            <button className="primary-button" disabled={loading} type="submit">{loading ? "Searching..." : "Find Account"}</button>
+          </form>
+
+          {candidate && <section className="add-admin-candidate">
+            <div className="add-admin-candidate-heading"><div><span>Selected user</span><strong>{candidate.displayName || candidate.email || "Delight Banking user"}</strong></div><span className={"admin-status-badge " + (cannotPromote ? "revoked" : "active")}>{cannotPromote ? "Blocked" : "Eligible"}</span></div>
+            <dl className="student-details compact-details"><div><dt>UID</dt><dd><ShortValue value={candidate.uid} /></dd></div><div><dt>Email</dt><dd><ShortValue value={candidate.email} /></dd></div><div><dt>Verified</dt><dd>{candidate.emailVerified ? "Yes" : "No"}</dd></div><div><dt>Provider</dt><dd>{candidate.provider || "Unknown"}</dd></div><div><dt>Created</dt><dd>{formatDate(candidate.createdAt)}</dd></div><div><dt>Last sign in</dt><dd>{formatDate(candidate.lastSignInAt)}</dd></div><div><dt>Admin status</dt><dd>{candidate.adminStatus || "Not administrator"}</dd></div></dl>
+            {promoteReason && <p className={"form-message " + (cannotPromote ? "" : "neutral")}>{promoteReason}</p>}
+          </section>}
+
+          {candidate && !cannotPromote && <section className="admin-dialog-step add-admin-grant-panel">
+            <label>Limited administrator role<select value={role} onChange={(event) => changeRole(event.target.value)}>{limitedAdminRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>
+            <div className="add-admin-permission-toolbar"><span>{selectedPermissions.length} permissions selected</span><button className="text-button" type="button" onClick={() => setSelectedPermissions(defaultPermissionsForRole(role))}>Role defaults</button></div>
+            <div className="add-admin-permission-groups">
+              {adminPermissionCatalog.map((group) => {
+                const visibleItems = group.items.filter(([permission]) => allowed.has(permission));
+                if (!visibleItems.length) return null;
+                return <fieldset key={group.group} className="add-admin-permission-group"><legend>{group.group}</legend>{visibleItems.map(([permission, label]) => <label key={permission} className="permission-check"><input type="checkbox" checked={selectedPermissions.includes(permission)} onChange={() => togglePermission(permission)} /><span>{label}</span><small>{permission}</small></label>)}</fieldset>;
+              })}
+            </div>
+            <label>Reason<textarea rows="3" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required for audit logs" /></label>
+            <label>Type ADD ADMIN to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+            {needsReauth && <div className="admin-reauth-box"><label>Password for email admins<input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} placeholder="Google admins can leave this blank" /></label><button className="ghost-button" type="button" disabled={loading} onClick={refreshAdminSession}>Refresh Session</button></div>}
+          </section>}
+
+          {message && <p className="form-message" role="status">{message}</p>}
+        </div>
+
+        <footer className="add-admin-footer">
+          <button className="ghost-button" type="button" onClick={onClose}>Cancel</button>
+          <button className="primary-button" type="button" disabled={grantDisabled} onClick={requestPromotion}>{loading ? "Working..." : "Grant Access"}</button>
+        </footer>
+      </section>
+    </div>
+    <ConfirmationDialog open={confirmOpen} title="Grant administrator access?" message={candidate ? "Grant " + roleLabel(role) + " access to " + (candidate.email || candidate.uid) + ". The user must sign out and sign in again." : "Grant administrator access?"} onCancel={() => setConfirmOpen(false)} onConfirm={submitPromotion} />
+  </>;
 }
 
 function AdminActionDialog({ action, adminUser, onCancel, onDone }) {

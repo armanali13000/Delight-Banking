@@ -29,6 +29,7 @@ import {
   promoteAdministrator,
   reactivateAdministrator,
   revokeAdministrator,
+  searchVerifiedUserByEmail,
   suspendAdministrator,
   updateAdministratorRole
 } from "../server/_lib/adminManagement.js";
@@ -204,6 +205,10 @@ async function handleGet(req, res, resource) {
   }
 
   if (resource === "administrators") {
+    if (req.query?.search === "1") {
+      sendJson(res, 200, await searchVerifiedUserByEmail(req, req.query?.email || req.query?.q || ""));
+      return;
+    }
     const uid = queryId(req, "uid");
     sendJson(res, 200, uid ? await getAdministratorDetail(req, uid) : await listAdministrators(req));
     return;

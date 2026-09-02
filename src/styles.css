@@ -2382,6 +2382,175 @@ body.admin-drawer-open {
   font-weight: 800;
 }
 
+.add-admin-dialog {
+  width: min(58rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.add-admin-header,
+.add-admin-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem;
+  background: #ffffff;
+}
+
+.add-admin-header {
+  border-bottom: 1px solid #e5eefb;
+}
+
+.add-admin-header h2 {
+  margin: 0.2rem 0 0;
+  font-size: clamp(1.35rem, 4vw, 2.1rem);
+  line-height: 1.08;
+}
+
+.add-admin-body {
+  display: grid;
+  gap: 1rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.15rem 1.25rem;
+}
+
+.add-admin-footer {
+  align-items: center;
+  border-top: 1px solid #e5eefb;
+}
+
+.add-admin-search {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.add-admin-candidate,
+.add-admin-grant-panel {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid #dbe7fb;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 1rem;
+}
+
+.add-admin-candidate-heading,
+.add-admin-permission-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.add-admin-candidate-heading span,
+.add-admin-permission-toolbar span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.add-admin-candidate-heading strong {
+  display: block;
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 1.02rem;
+}
+
+.compact-details {
+  margin: 0;
+}
+
+.add-admin-permission-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.add-admin-permission-group {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  border: 1px solid #dbe7fb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.85rem;
+}
+
+.add-admin-permission-group legend {
+  padding: 0 0.25rem;
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.permission-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1rem 0.55rem;
+  align-items: start;
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.permission-check input {
+  grid-row: span 2;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.15rem;
+  accent-color: #ef334d;
+}
+
+.permission-check small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .modal-backdrop {
+    padding: 0.55rem;
+  }
+
+  .add-admin-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 1.1rem);
+  }
+
+  .add-admin-header,
+  .add-admin-footer,
+  .add-admin-body {
+    padding: 0.95rem;
+  }
+
+  .add-admin-search,
+  .add-admin-permission-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .add-admin-candidate-heading,
+  .add-admin-permission-toolbar,
+  .add-admin-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .add-admin-footer .ghost-button,
+  .add-admin-footer .primary-button,
+  .add-admin-search .primary-button {
+    width: 100%;
+  }
+}
+
 .admin-pagination {
   display: flex;
   align-items: center;
