@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { getVariant, planSnapshot } from "./plans.js";
 import {
@@ -212,7 +212,7 @@ async function activateEntitlement(tx, db, orderRef, order, paymentId, source, p
   const existing = await tx.get(subRef);
   const currentEnd = existing.exists && existing.data().accessEndAt?.toDate ? existing.data().accessEndAt.toDate() : null;
   const start = currentEnd && currentEnd > paidAtDate ? currentEnd : paidAtDate;
-  const end = addCalendarMonths(start, order.trustedPlanSnapshot.durationMonths);
+  const end = order.trustedPlanSnapshot.validityMode === "fixed_end_date" && order.trustedPlanSnapshot.accessEndDate ? new Date(order.trustedPlanSnapshot.accessEndDate) : addCalendarMonths(start, order.trustedPlanSnapshot.durationMonths);
 
   tx.set(subRef, {
     userId: order.userId,
@@ -623,3 +623,4 @@ export async function processWebhookEvent(event, rawFallback = "") {
     throw cause;
   }
 }
+

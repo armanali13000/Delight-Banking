@@ -1,4 +1,4 @@
-﻿import { firebaseConfig, seedResources } from "../config.js";
+import { firebaseConfig, seedResources } from "../config.js";
 
 export const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => {
   return typeof value === "string" && value.trim() && !value.includes("PASTE_");
@@ -640,7 +640,7 @@ export async function duplicateAdminResource(id) {
 }
 
 export async function setAdminResourceStatus(id, status, payload = {}) {
-  const action = status === "published" ? "publish_resource" : status === "scheduled" ? "schedule_resource" : status === "draft" ? "restore_resource" : `${status}_resource`;
+  const action = status === "published" ? "publish_resource" : status === "scheduled" ? "schedule_resource" : status === "unpublished" ? "unpublish_resource" : status === "archived" ? "archive_resource" : status === "draft" ? "restore_resource" : `${status}_resource`;
   return adminPost(action, { resourceId: id, ...payload });
 }
 
@@ -827,6 +827,7 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
 
 
 

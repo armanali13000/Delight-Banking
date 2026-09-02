@@ -1,0 +1,18 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-label="RRB PO and Clerk Mentorship Program by Imran Sir">
+  <rect width="1200" height="675" fill="#0f5132"/>
+  <rect x="44" y="44" width="1112" height="587" rx="28" fill="#fff8e7"/>
+  <text x="92" y="130" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#0f5132">RRB PO / Clerk Mentorship Program</text>
+  <text x="92" y="185" font-family="Arial, sans-serif" font-size="30" font-weight="600" fill="#1f2937">Full Guidance from Prelims to Mains and Interview</text>
+  <text x="92" y="255" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#b45309">By Imran Sir</text>
+  <text x="92" y="330" font-family="Arial, sans-serif" font-size="28" fill="#1f2937">Weekly and daily targets | Mock analysis | Personal guidance</text>
+  <text x="92" y="385" font-family="Arial, sans-serif" font-size="28" fill="#1f2937">WhatsApp doubt support | Call support after branch time</text>
+  <rect x="92" y="450" width="296" height="98" rx="16" fill="#0f5132"/>
+  <text x="122" y="492" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">Monthly</text>
+  <text x="122" y="530" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#ffffff">Rs 700</text>
+  <rect x="430" y="450" width="296" height="98" rx="16" fill="#1d4ed8"/>
+  <text x="460" y="492" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">Three Months</text>
+  <text x="460" y="530" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#ffffff">Rs 1,800</text>
+  <rect x="768" y="450" width="296" height="98" rx="16" fill="#7c2d12"/>
+  <text x="798" y="492" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">Till Interview</text>
+  <text x="798" y="530" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#ffffff">Rs 3,500</text>
+</svg>

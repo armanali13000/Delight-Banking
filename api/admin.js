@@ -1,4 +1,4 @@
-﻿import { getDb, serverTimestamp } from "../server/_lib/firebaseAdmin.js";
+import { getDb, serverTimestamp } from "../server/_lib/firebaseAdmin.js";
 import { hasPermission, requireAdmin, requireAdminRole, safeAdmin, writeAdminActivityLog } from "../server/_lib/adminAuth.js";
 import { getAdminDashboardOverview } from "../server/_lib/adminDashboard.js";
 import {
@@ -275,7 +275,7 @@ async function handlePost(req, res) {
   if (action === "save_resource") return sendJson(res, 200, await saveAdminResource(admin, body));
   if (action === "duplicate_resource") return sendJson(res, 200, await duplicateAdminResource(admin, cleanText(body.resourceId, 240)));
   if (["publish_resource", "schedule_resource", "unpublish_resource", "archive_resource"].includes(action)) {
-    const nextStatus = action === "publish_resource" ? "published" : action === "schedule_resource" ? "scheduled" : action.replace("_resource", "");
+    const nextStatus = action === "publish_resource" ? "published" : action === "schedule_resource" ? "scheduled" : action === "unpublish_resource" ? "unpublished" : "archived";
     return sendJson(res, 200, await setAdminResourceStatus(admin, cleanText(body.resourceId, 240), nextStatus, body));
   }
   if (action === "restore_resource") return sendJson(res, 200, await setAdminResourceStatus(admin, cleanText(body.resourceId, 240), "draft", body));
@@ -283,7 +283,7 @@ async function handlePost(req, res) {
   if (action === "create_upload_session") return sendJson(res, 200, await createUploadSession(admin, body));
   if (action === "save_target") return sendJson(res, 200, await saveAdminTarget(admin, body));
   if (["publish_target", "unpublish_target", "archive_target", "restore_target", "complete_target"].includes(action)) {
-    const nextStatus = action === "publish_target" ? "published" : action === "restore_target" ? "draft" : action === "complete_target" ? "completed" : action.replace("_target", "");
+    const nextStatus = action === "publish_target" ? "published" : action === "unpublish_target" ? "unpublished" : action === "archive_target" ? "archived" : action === "restore_target" ? "draft" : "completed";
     return sendJson(res, 200, await setAdminTargetStatus(admin, cleanText(body.targetId, 240), nextStatus, body));
   }
   if (action === "delete_target") return sendJson(res, 200, await deleteAdminTarget(admin, cleanText(body.targetId, 240), body));
@@ -307,6 +307,7 @@ export default async function handler(req, res) {
     handleError(res, error);
   }
 }
+
 
 
 

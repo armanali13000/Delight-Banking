@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { load } from "@cashfreepayments/cashfree-js";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
@@ -390,20 +390,23 @@ function PlanCard({ plan, ownedVariants = new Set() }) {
   const [selectedId, setSelectedId] = useState(plan.variants[0].variantId);
   const selected = plan.variants.find((variant) => variant.variantId === selectedId) || plan.variants[0];
   const ownsVariant = ownedVariants.has(selected.variantId);
+  const canPurchase = selected.active !== false && selected.purchaseEnabled !== false && !(selected.requiresAccessEndDate && !selected.accessEndDate);
+  const selectedPrice = selected.offerPriceInRupees ?? selected.priceInRupees;
   return (
     <article className={`plan-card mentorship-plan-card ${plan.featured ? "featured" : ""}`}>
       {plan.featured && <span className="featured-badge">Premium Featured</span>}
+      {plan.cardImage && <img className="plan-card-image" src={plan.cardImage} loading="lazy" alt={plan.imageAlt || `${plan.name} plan poster`} />}
       <span className="chip">{plan.coverage}</span>
       <h3>{plan.name}</h3>
       <p className="plan-subtitle">{plan.subtitle}</p>
       <p className="mentor-byline">Mentorship by Imran Sir</p>
       <p>{plan.description}</p>
       <div className="duration-tabs" role="radiogroup" aria-label={`${plan.name} durations`}>
-        {plan.variants.map((variant) => <button className={variant.variantId === selected.variantId ? "active" : ""} key={variant.variantId} type="button" role="radio" aria-checked={variant.variantId === selected.variantId} onClick={() => setSelectedId(variant.variantId)}><strong>{variant.durationLabel}</strong><span>{formatPrice(variant.priceInRupees)}</span></button>)}
+        {plan.variants.map((variant) => <button className={variant.variantId === selected.variantId ? "active" : ""} key={variant.variantId} type="button" role="radio" aria-checked={variant.variantId === selected.variantId} onClick={() => setSelectedId(variant.variantId)}><strong>{variant.durationLabel}</strong><span>{variant.active === false || variant.purchaseEnabled === false || (variant.requiresAccessEndDate && !variant.accessEndDate) ? "Configure date" : formatPrice(variant.offerPriceInRupees ?? variant.priceInRupees)}</span></button>)}
       </div>
-      <div className="plan-price-row"><div className="price">{formatPrice(selected.priceInRupees)}</div><span className="status-pill">Validity: {selected.durationLabel}</span></div>
+      <div className="plan-price-row"><div className="price">{canPurchase ? formatPrice(selectedPrice) : "Offer setup pending"}</div><span className="status-pill">Validity: {selected.durationLabel}</span></div>{selected.publicNote && <p className="setup-note">{selected.publicNote}</p>}
       <ul>{plan.benefits.map((benefit) => <li key={benefit}>{benefit}</li>)}</ul>
-      <div className="form-actions"><button className="primary-button full" type="button" onClick={() => routeTo(`${appBase}checkout/${selected.variantId}`)}>{ownsVariant ? "Renew Plan" : "Choose Plan"}</button><a className="ghost-button full" href={`${appBase}checkout/${selected.variantId}`}>View Details</a></div>
+      <div className="form-actions"><button className="primary-button full" type="button" disabled={!canPurchase} onClick={() => routeTo(`${appBase}checkout/${selected.variantId}`)}>{canPurchase ? ownsVariant ? "Renew Plan" : "Choose Plan" : "Not Available"}</button><a className="ghost-button full" href={`${appBase}checkout/${selected.variantId}`}>View Details</a></div>
     </article>
   );
 }
@@ -447,6 +450,8 @@ function CheckoutPage({ variantId }) {
   useEffect(() => { listenToAuth((nextUser) => { setUser(nextUser); setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {}); if (!nextUser) setAuthMode("signin"); }); }, []);
   if (!selected) return <Shell user={user} onAuth={setAuthMode}><section className="section"><div className="premium-card"><h1>Plan not found</h1><p>This plan variant is not available.</p><a className="primary-button" href={`${appBase}#plans`}>View Plans</a></div></section></Shell>;
   const { plan, ...variant } = selected;
+  const canPurchaseVariant = variant.active !== false && variant.purchaseEnabled !== false && !(variant.requiresAccessEndDate && !variant.accessEndDate);
+  if (!canPurchaseVariant) return <Shell user={user} onAuth={setAuthMode}><section className="section"><div className="premium-card"><h1>Plan setup pending</h1><p>This plan duration is visible for preview, but purchase is disabled until the access end date is configured by an administrator.</p><a className="primary-button" href={`${appBase}#plans`}>View Plans</a></div></section></Shell>;
   const canPay = user && accepted.terms && accepted.refund && accepted.privacy && status !== "processing";
   async function pay() {
     if (!user) { setAuthMode("signin"); return; }
@@ -698,7 +703,11 @@ const adminNavItems = [
 ];
 
 function adminHasPermission(admin, permission) {
-  return admin?.role === "super_admin" || Boolean(admin?.permissions?.includes(permission));
+  if (admin?.role === "super_admin") return true;
+  const permissions = admin?.permissions || [];
+  if (permissions.includes(permission)) return true;
+  if (permission?.endsWith(".view")) return permissions.includes(`${permission.split(".")[0]}.manage`);
+  return false;
 }
 
 function AdminRoleBadge({ role }) {
@@ -768,20 +777,20 @@ function AdminProfileMenu({ admin, onLogout }) {
 }
 
 function AdminHeader({ admin, onMenu, onLogout }) {
-  return <header className="admin-header"><button className="icon-button admin-menu-button" type="button" onClick={onMenu} aria-label="Open admin navigation">M</button><div><strong>Delight Banking Admin</strong><span>Secure session active</span></div><AdminProfileMenu admin={admin} onLogout={onLogout} /></header>;
+  return <header className="admin-header"><button className="icon-button admin-menu-button" type="button" onClick={onMenu} aria-label="Open admin navigation"><MenuIcon /></button><div><strong>Delight Banking</strong><span>Admin</span></div><AdminProfileMenu admin={admin} onLogout={onLogout} /></header>;
 }
 
 function AdminMobileNavigation({ open, activePath, admin, onNavigate, onClose }) {
   useEffect(() => { document.body.classList.toggle("admin-drawer-open", open); return () => document.body.classList.remove("admin-drawer-open"); }, [open]);
   if (!open) return null;
-  return <div className="admin-mobile-backdrop" role="presentation" onMouseDown={onClose}><div className="admin-mobile-drawer" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close admin navigation">x</button><AdminSidebar activePath={activePath} admin={admin} onNavigate={onNavigate} onClose={onClose} /></div></div>;
+  return <div className="admin-mobile-backdrop" role="presentation" onMouseDown={onClose}><div className="admin-mobile-drawer" onMouseDown={(event) => event.stopPropagation()}><button className="icon-button close-button" type="button" onClick={onClose} aria-label="Close admin navigation"><CloseIcon /></button><AdminSidebar activePath={activePath} admin={admin} onNavigate={onNavigate} onClose={onClose} /></div></div>;
 }
 
 function AdminLayout({ admin, activePath, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   async function logout() { await signOutUser(); routeTo(`${appBase}admin/login`); }
   function navigate(path) { routeTo(`${appBase}${path.replace(/^\//, "")}`); }
-  return <main className="admin-portal-page"><AdminMobileNavigation open={mobileOpen} activePath={activePath} admin={admin} onNavigate={navigate} onClose={() => setMobileOpen(false)} /><div className="admin-portal-shell"><AdminSidebar activePath={activePath} admin={admin} onNavigate={navigate} /><section className="admin-main"><AdminHeader admin={admin} onMenu={() => setMobileOpen(true)} onLogout={logout} />{children}</section></div></main>;
+  return <main className="admin-portal-page"><AdminMobileNavigation open={mobileOpen} activePath={activePath} admin={admin} onNavigate={navigate} onClose={() => setMobileOpen(false)} /><div className="admin-portal-shell"><AdminSidebar activePath={activePath} admin={admin} onNavigate={navigate} /><section className="admin-main"><AdminHeader admin={admin} onMenu={() => setMobileOpen(true)} onLogout={logout} />{children}<footer className="admin-footer-credit">Developed by <a href="mailto:darkdevil7325@gmail.com?subject=Delight%20Guidance%20Website%20Enquiry" title="Contact developer Arman" aria-label="Contact developer Arman">Arman</a></footer></section></div></main>;
 }
 
 function AdminRouteGuard({ path, children }) {
@@ -1210,7 +1219,8 @@ function AdminUsersPage({ admin }) {
 }
 
 function DetailTable({ title, rows, columns, empty = "No records." }) {
-  return <section className="admin-card admin-table-wrap"><h2>{title}</h2>{rows?.length ? <table className="admin-table"><thead><tr>{columns.map((column) => <th className={column.className || ""} key={`${column.key}-${column.label}`}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id || row.uid || row.orderId || row.transactionId}>{columns.map((column) => <td className={column.className || ""} key={`${column.key}-${column.label}`}>{column.render ? column.render(row) : row[column.key] || "-"}</td>)}</tr>)}</tbody></table> : <AdminEmptyState title={title} text={empty} />}</section>;
+  const items = rows || [];
+  return <section className="admin-card admin-table-wrap"><h2>{title}</h2>{items.length ? <><table className="admin-table"><thead><tr>{columns.map((column) => <th className={column.className || ""} key={`${column.key}-${column.label}`}>{column.label}</th>)}</tr></thead><tbody>{items.map((row) => <tr key={row.id || row.uid || row.orderId || row.transactionId || row.classId || row.targetId || row.resourceId}>{columns.map((column) => <td className={column.className || ""} key={`${column.key}-${column.label}`}>{column.render ? column.render(row) : row[column.key] || "-"}</td>)}</tr>)}</tbody></table><div className="admin-mobile-list">{items.map((row) => <article className="admin-mobile-card" key={row.id || row.uid || row.orderId || row.transactionId || row.classId || row.targetId || row.resourceId}>{columns.map((column) => <div className="admin-mobile-field" key={`${column.key}-${column.label}`}><span>{column.label}</span><strong>{column.render ? column.render(row) : row[column.key] || "-"}</strong></div>)}</article>)}</div></> : <AdminEmptyState title={title} text={empty} />}</section>;
 }
 
 function AdminUserDetailPage({ admin, uid }) {
@@ -1337,9 +1347,10 @@ function ContentEditorDialog({ open, kind, item, onClose, onSave, onUpload }) {
 function ContentRowActions({ item, kind, onEdit, onDuplicate, onStatus, onDelete }) {
   const status = item.status || "draft";
   const canEdit = !["archived", "deleted"].includes(status);
+  const canTogglePublish = !["archived", "deleted", "cancelled"].includes(status);
   const publishLabel = status === "published" || status === "upcoming" || status === "live" || status === "recorded" ? "Unpublish" : "Publish";
   const publishStatus = publishLabel === "Unpublish" ? "unpublished" : "published";
-  return <div className="table-actions"><button className="text-button" type="button" disabled={!canEdit} onClick={() => onEdit(item)}>Edit</button>{kind === "resource" && canEdit && <button className="text-button" type="button" onClick={() => onDuplicate(item.id)}>Duplicate</button>}{status !== "archived" && status !== "deleted" && <button className="text-button" type="button" onClick={() => onStatus(item, publishStatus)}>{publishLabel}</button>}{kind === "target" && status === "published" && <button className="text-button" type="button" onClick={() => onStatus(item, "completed")}>Complete</button>}{kind === "class" && ["published", "upcoming", "live"].includes(status) && <button className="text-button" type="button" onClick={() => onStatus(item, "cancelled")}>Cancel</button>}{status !== "archived" && status !== "deleted" && <button className="text-button" type="button" onClick={() => onStatus(item, "archived")}>Archive</button>}{["archived", "deleted", "cancelled"].includes(status) && <button className="text-button" type="button" onClick={() => onStatus(item, "draft")}>Restore</button>}<button className="text-button danger-link" type="button" onClick={() => onDelete(item)}>Delete</button></div>;
+  return <div className="table-actions"><button className="text-button" type="button" disabled={!canEdit} onClick={() => onEdit(item)}>Edit</button>{kind === "resource" && canEdit && <button className="text-button" type="button" onClick={() => onDuplicate(item.id)}>Duplicate</button>}{canTogglePublish && <button className="text-button" type="button" onClick={() => onStatus(item, publishStatus)}>{publishLabel}</button>}{kind === "target" && status === "published" && <button className="text-button" type="button" onClick={() => onStatus(item, "completed")}>Complete</button>}{kind === "class" && ["published", "upcoming", "live"].includes(status) && <button className="text-button" type="button" onClick={() => onStatus(item, "cancelled")}>Cancel</button>}{status !== "archived" && status !== "deleted" && <button className="text-button" type="button" onClick={() => onStatus(item, "archived")}>Archive</button>}{["archived", "deleted", "cancelled"].includes(status) && <button className="text-button" type="button" onClick={() => onStatus(item, "draft")}>Restore</button>}<button className="text-button danger-link" type="button" onClick={() => onDelete(item)}>Delete</button></div>;
 }
 function AdminResourcesPage({ admin }) {
   const [filters, setFilters] = useState({});
@@ -1391,6 +1402,33 @@ function AdminClassesPage({ admin }) {
   async function runConfirm() { const action = confirmAction; if (!action) return; if (action.delete) await deleteAdminClass(action.item.id, { reason: action.title }); else await setAdminClassStatus(action.item.id, action.next, { reason: action.title }); setConfirmAction(null); await load(); }
   return <PermissionGate admin={admin} permission="classes.view"><AdminPageHeader eyebrow="Classes" title="Live and recorded classes" description="Schedule protected sessions and publish recordings for entitled students." admin={admin} /><section className="admin-card admin-management-toolbar phase3-toolbar"><div className="admin-filter-grid"><label>Status<select value={filters.status || ""} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All</option><option value="draft">Draft</option><option value="published">Published</option><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="recorded">Recorded</option><option value="unpublished">Unpublished</option><option value="cancelled">Cancelled</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select></label></div><button className="primary-button" type="button" onClick={() => setEditing({})}>Create Class</button></section>{message ? <AdminEmptyState title="Classes" text={message} onRetry={load} /> : <DetailTable title="Classes" rows={data?.items || []} columns={[{ key: "classId", label: "ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.classId} /> }, { key: "title", label: "Title" }, { key: "mode", label: "Mode" }, { key: "planLabels", label: "Plans", render: (row) => row.planLabels?.join(", ") || "Unassigned" }, { key: "startAt", label: "Start", render: (row) => formatDate(row.startAt) }, { key: "status", label: "Status", className: "admin-nowrap", render: (row) => <AdminStatusBadge value={row.status} /> }, { key: "id", label: "Actions", className: "admin-nowrap", render: (row) => <ContentRowActions item={row} kind="class" onEdit={setEditing} onStatus={status} onDelete={remove} /> }]} />}<ContentEditorDialog open={Boolean(editing)} kind="class" item={editing} onClose={() => setEditing(null)} onSave={async (payload) => { await saveAdminClass(payload); await load(); }} /><ConfirmationDialog open={Boolean(confirmAction)} title={confirmAction?.title || "Confirm action"} message={confirmAction?.message || "Confirm this class action."} onCancel={() => setConfirmAction(null)} onConfirm={runConfirm} /></PermissionGate>;
 }
+function AdminPlansPage({ admin }) {
+  const catalogRows = plans.map((plan) => ({
+    id: plan.planId,
+    planId: plan.planId,
+    name: plan.name,
+    subtitle: plan.subtitle,
+    status: plan.status || (plan.active === false ? "inactive" : "active"),
+    variants: plan.variants || [],
+    temporary: plan.temporary,
+    featured: plan.featured
+  }));
+  const variantRows = plans.flatMap((plan) => (plan.variants || []).map((variant) => {
+    const purchasable = plan.active !== false && variant.active !== false && variant.purchaseEnabled !== false && !(variant.requiresAccessEndDate && !variant.accessEndDate);
+    return {
+      id: variant.variantId,
+      planName: plan.name,
+      variantId: variant.variantId,
+      durationLabel: variant.durationLabel || variant.displayLabel,
+      price: variant.offerPriceInRupees ?? variant.priceInRupees,
+      validityMode: variant.validityMode || "fixed_months",
+      accessEndDate: variant.accessEndDate,
+      status: purchasable ? "active" : variant.status || "draft",
+      purchasable
+    };
+  }));
+  return <PermissionGate admin={admin} permission="plans.view"><AdminPageHeader eyebrow="Plans" title="Plan catalogue" description="Current checkout catalogue, pricing, duration, and temporary plan availability." admin={admin} /><DetailTable title="Plans" rows={catalogRows} columns={[{ key: "planId", label: "Plan ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.planId} /> }, { key: "name", label: "Plan" }, { key: "subtitle", label: "Subtitle" }, { key: "status", label: "Status", className: "admin-nowrap", render: (row) => <AdminStatusBadge value={row.status} /> }, { key: "variants", label: "Variants", render: (row) => row.variants.length }, { key: "temporary", label: "Flags", render: (row) => [row.featured ? "Featured" : "", row.temporary ? "Temporary" : ""].filter(Boolean).join(", ") || "Standard" }]} /><DetailTable title="Plan variants" rows={variantRows} columns={[{ key: "variantId", label: "Variant ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.variantId} /> }, { key: "planName", label: "Plan" }, { key: "durationLabel", label: "Duration" }, { key: "price", label: "Price", className: "admin-nowrap", render: (row) => formatPrice(row.price) }, { key: "validityMode", label: "Validity", render: (row) => row.validityMode === "fixed_end_date" ? `Until ${formatDate(row.accessEndDate)}` : "Fixed months" }, { key: "status", label: "Checkout", className: "admin-nowrap", render: (row) => <AdminStatusBadge value={row.purchasable ? "active" : "draft"} /> }, { key: "action", label: "Action", className: "admin-nowrap", render: (row) => row.purchasable ? <a className="text-button" href={`${appBase}checkout/${encodeURIComponent(row.variantId)}`}>Preview</a> : "Setup pending" }]} /></PermissionGate>;
+}
 function AdminModulePlaceholder({ admin, title, permission }) {
   return <PermissionGate admin={admin} permission={permission}><AdminPageHeader eyebrow="Admin Module" title={title} description="This module is routed and protected. Operational tools for this area continue in the next build phase." admin={admin} /><AdminEmptyState title="Module ready" text="Dashboard analytics are live; this detailed module will expand in the next admin phase." /></PermissionGate>;
 }
@@ -1410,10 +1448,10 @@ function AdminPage({ path }) {
   const resourceDetailMatch = path.match(/^\/admin\/resources\/([^/]+)$/);
   const navItem = adminNavItems.find(([itemPath]) => itemPath === path);
   const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : subscriptionDetailMatch ? "/admin/subscriptions" : orderDetailMatch ? "/admin/orders" : transactionDetailMatch ? "/admin/transactions" : resourceDetailMatch ? "/admin/resources" : path;
-  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/plans" ? <AdminPlansPage admin={admin} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function Footer() {
-  return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span></div></footer>;
+  return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span><p className="developer-credit">Developed by <a href="mailto:darkdevil7325@gmail.com?subject=Delight%20Guidance%20Website%20Enquiry" title="Contact developer Arman" aria-label="Contact developer Arman">Arman</a></p></div></footer>;
 }
 
 export default function App() {
@@ -1435,6 +1473,17 @@ export default function App() {
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -2327,6 +2327,26 @@ body.admin-drawer-open {
 .admin-mobile-card p {
   color: #64748b;
 }
+.admin-mobile-field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.admin-mobile-field strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  color: #0f172a;
+}
+
+.admin-mobile-field .admin-status-badge,
+.admin-mobile-field .status-pill,
+.admin-mobile-field .text-button,
+.admin-mobile-field .ghost-button {
+  width: fit-content;
+  white-space: nowrap;
+}
 
 .admin-management-dialog {
   position: relative;
@@ -2916,3 +2936,33 @@ body.mobile-nav-locked {
     min-width: 0;
   }
 }
+
+.developer-credit,
+.admin-footer-credit {
+  margin-top: 1rem;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.developer-credit a,
+.admin-footer-credit a {
+  color: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.admin-footer-credit {
+  padding: 1rem 0 0.5rem;
+  text-align: center;
+}
+
+.plan-card-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
