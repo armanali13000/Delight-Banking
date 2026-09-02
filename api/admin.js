@@ -51,6 +51,19 @@ import {
   setAdminResourceStatus,
   setAdminTargetStatus
 } from "../server/_lib/content.js";
+import {
+  createPlan,
+  deleteUnusedPlan,
+  deleteUnusedPlanVariant,
+  duplicatePlan,
+  getAdminPlan,
+  listAdminPlans,
+  setPlanStatus,
+  setPlanVariantStatus,
+  trashPlan,
+  updatePlan,
+  updatePlanVariant
+} from "../server/_lib/planManagement.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 
 const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes"]);
@@ -93,7 +106,22 @@ const ACTIONS = new Set([
   "record_class",
   "archive_class",
   "restore_class",
-  "delete_class"
+  "delete_class",
+  "disable_plan_variant",
+  "enable_plan_variant",
+  "delete_unused_plan_variant",
+  "archive_plan_variant",
+  "update_plan_variant",
+  "create_plan_variant",
+  "delete_unused_plan",
+  "trash_plan",
+  "restore_plan",
+  "archive_plan",
+  "unpublish_plan",
+  "publish_plan",
+  "duplicate_plan",
+  "update_plan",
+  "create_plan"
 ]);
 
 function cleanText(value, max = 240) {
@@ -212,7 +240,8 @@ async function handleGet(req, res, resource) {
     return;
   }
   if (resource === "plans") {
-    sendJson(res, 200, { plans: (await import("../server/_lib/plans.js")).plans });
+    const id = queryId(req, "planId");
+    sendJson(res, 200, id ? await getAdminPlan(admin, id) : await listAdminPlans(admin, req.query || {}));
     return;
   }
   if (resource === "resources") {
@@ -272,6 +301,21 @@ async function handlePost(req, res) {
   if (action === "reactivate_subscription") return sendJson(res, 200, await reactivateSubscription(admin, cleanText(body.subscriptionId, 240), body));
   if (action === "reconcile_transaction") return sendJson(res, 200, await reconcileTransaction(admin, cleanText(body.transactionId, 240)));
   if (action === "add_note") return sendJson(res, 200, await addAdminNote(admin, cleanText(body.entityType, 80), cleanText(body.entityId, 240), body));
+  if (action === "create_plan") return sendJson(res, 200, await createPlan(admin, body));
+  if (action === "update_plan") return sendJson(res, 200, await updatePlan(admin, cleanText(body.planId, 160), body));
+  if (action === "duplicate_plan") return sendJson(res, 200, await duplicatePlan(admin, cleanText(body.planId, 160)));
+  if (["publish_plan", "unpublish_plan", "archive_plan", "restore_plan"].includes(action)) {
+    const nextStatus = action === "publish_plan" ? "active" : action === "unpublish_plan" ? "unpublished" : action === "archive_plan" ? "archived" : "draft";
+    return sendJson(res, 200, await setPlanStatus(admin, cleanText(body.planId, 160), nextStatus));
+  }
+  if (action === "trash_plan") return sendJson(res, 200, await trashPlan(admin, cleanText(body.planId, 160)));
+  if (action === "delete_unused_plan") return sendJson(res, 200, await deleteUnusedPlan(admin, cleanText(body.planId, 160), body));
+  if (action === "create_plan_variant" || action === "update_plan_variant") return sendJson(res, 200, await updatePlanVariant(admin, body));
+  if (["enable_plan_variant", "disable_plan_variant", "archive_plan_variant"].includes(action)) {
+    const nextStatus = action === "enable_plan_variant" ? "active" : action === "disable_plan_variant" ? "disabled" : "archived";
+    return sendJson(res, 200, await setPlanVariantStatus(admin, cleanText(body.variantId, 160), nextStatus));
+  }
+  if (action === "delete_unused_plan_variant") return sendJson(res, 200, await deleteUnusedPlanVariant(admin, cleanText(body.variantId, 160), body));
   if (action === "save_resource") return sendJson(res, 200, await saveAdminResource(admin, body));
   if (action === "duplicate_resource") return sendJson(res, 200, await duplicateAdminResource(admin, cleanText(body.resourceId, 240)));
   if (["publish_resource", "schedule_resource", "unpublish_resource", "archive_resource"].includes(action)) {
@@ -307,6 +351,8 @@ export default async function handler(req, res) {
     handleError(res, error);
   }
 }
+
+
 
 
 

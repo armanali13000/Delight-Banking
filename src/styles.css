@@ -1575,7 +1575,7 @@ select option {
 }
 
 .checkout-shell {
-  grid-template-columns: minmax(0, 0.85fr) minmax(18rem, 1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
   align-items: start;
   max-width: 1180px;
   margin: 0 auto;
@@ -2966,3 +2966,46 @@ body.mobile-nav-locked {
   margin-bottom: 1rem;
 }
 
+
+.checkout-shell > *,
+.checkout-summary,
+.checkout-form {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.checkout-summary h1 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 0.98;
+}
+
+.checkout-summary p,
+.checkout-summary li,
+.checkout-form label,
+.checkout-form h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-preview-banner {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid rgba(255, 92, 108, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 92, 108, 0.12);
+  color: var(--accent);
+  font-weight: 900;
+  padding: 0.35rem 0.65rem;
+}
+
+.plan-editor .wide-field {
+  grid-column: 1 / -1;
+}
+
+.plan-variant-editor {
+  display: grid;
+  gap: 1rem;
+}

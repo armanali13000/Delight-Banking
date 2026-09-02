@@ -550,6 +550,51 @@ function adminQuery(params = {}) {
   return text ? `?${text}` : "";
 }
 
+export async function getPublicPlans() {
+  return apiFetch(studentContentPath("plans"), { forceRefresh: true });
+}
+
+export async function getAdminPlans(params = {}) {
+  return apiFetch(adminApiPath("plans", params), { forceRefresh: true });
+}
+
+export async function getAdminPlan(id) {
+  return apiFetch(adminApiPath("plans", { planId: id }), { forceRefresh: true });
+}
+
+export async function createAdminPlan(payload) {
+  return adminPost("create_plan", payload);
+}
+
+export async function updateAdminPlan(id, payload) {
+  return adminPost("update_plan", { planId: id, ...payload });
+}
+
+export async function duplicateAdminPlan(id) {
+  return adminPost("duplicate_plan", { planId: id });
+}
+
+export async function setAdminPlanStatus(id, status) {
+  const action = status === "active" || status === "published" ? "publish_plan" : status === "unpublished" ? "unpublish_plan" : status === "archived" ? "archive_plan" : status === "trashed" ? "trash_plan" : "restore_plan";
+  return adminPost(action, { planId: id });
+}
+
+export async function deleteUnusedAdminPlan(id, confirm) {
+  return adminPost("delete_unused_plan", { planId: id, confirm });
+}
+
+export async function saveAdminPlanVariant(payload) {
+  return adminPost(payload?.isNew ? "create_plan_variant" : "update_plan_variant", payload);
+}
+
+export async function setAdminPlanVariantStatus(id, status) {
+  const action = status === "active" || status === "published" ? "enable_plan_variant" : status === "disabled" ? "disable_plan_variant" : "archive_plan_variant";
+  return adminPost(action, { variantId: id });
+}
+
+export async function deleteUnusedAdminPlanVariant(id, confirm) {
+  return adminPost("delete_unused_plan_variant", { variantId: id, confirm });
+}
 export async function getAdminUsers(params = {}) {
   return apiFetch(adminApiPath("users", params), { forceRefresh: true });
 }
@@ -827,6 +872,7 @@ async function syncStudentToFirestore(student) {
     console.error("Unable to sync student profile", error);
   }
 }
+
 
 
 

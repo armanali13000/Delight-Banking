@@ -1,6 +1,6 @@
-﻿import crypto from "node:crypto";
+import crypto from "node:crypto";
 import { getDb, serverTimestamp } from "./firebaseAdmin.js";
-import { getVariant, planSnapshot } from "./plans.js";
+import { getCheckoutVariant, planSnapshot } from "./planManagement.js";
 import {
   createCashfreeOrder,
   fetchCashfreeOrder,
@@ -246,7 +246,7 @@ async function activateEntitlement(tx, db, orderRef, order, paymentId, source, p
 }
 
 export async function createOrderForVariant(user, variantId, billing = {}) {
-  const selected = getVariant(variantId);
+  const selected = await getCheckoutVariant(variantId);
   if (!selected) {
     const error = new Error("Invalid or inactive plan variant.");
     error.statusCode = 400;
@@ -623,4 +623,5 @@ export async function processWebhookEvent(event, rawFallback = "") {
     throw cause;
   }
 }
+
 

@@ -1,4 +1,4 @@
-﻿import {
+import {
   getStudentContentDashboard,
   getStudentResource,
   getStudentTarget,
@@ -10,9 +10,10 @@
   requestFileAccess,
   updateTargetProgress
 } from "../server/_lib/content.js";
+import { listEffectivePlans } from "../server/_lib/planManagement.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 
-const RESOURCES = new Set(["dashboard", "resources", "targets", "classes"]);
+const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans"]);
 const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class"]);
 
 function cleanText(value, max = 240) {
@@ -36,6 +37,7 @@ function queryId(req, name = "id") {
 }
 
 async function handleGet(req, res, resource) {
+  if (resource === "plans") return sendJson(res, 200, { plans: await listEffectivePlans({ publicOnly: true }) });
   if (resource === "dashboard") return sendJson(res, 200, await getStudentContentDashboard(req));
   if (resource === "resources") {
     const id = queryId(req, "resourceId");
@@ -71,3 +73,4 @@ export default async function handler(req, res) {
     handleError(res, error);
   }
 }
+

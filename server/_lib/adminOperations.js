@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import { getAuth } from "firebase-admin/auth";
 import { getAdminApp, getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { hasPermission, writeAdminActivityLog } from "./adminAuth.js";
-import { getVariant, planSnapshot, plans } from "./plans.js";
+import { getVariant, plans } from "./plans.js";
+import { getCheckoutVariant, planSnapshot } from "./planManagement.js";
 import { normalizeOrder as normalizeAdminOrder, normalizeSubscription as normalizeAdminSubscription, normalizeTransaction as normalizeAdminTransaction, normalizeUser as normalizeAdminUser } from "./adminNormalizers.js";
 import { addCalendarMonths, syncOrderWithCashfree } from "./payments.js";
 import { readJson } from "./http.js";
@@ -358,7 +359,7 @@ export async function grantSubscription(admin, body) {
   if (!uid || !variantId) throw httpError("User and plan duration are required.", 400);
   if (!MANUAL_ACCESS_SOURCES.includes(source)) throw httpError("Invalid manual access source.", 400);
   if (!reason) throw httpError("Reason is required.", 400);
-  const selected = getVariant(variantId);
+  const selected = await getCheckoutVariant(variantId);
   if (!selected) throw httpError("Invalid plan duration.", 400);
   const authUser = await getAuth(getAdminApp()).getUser(uid).catch(() => null);
   if (!authUser) throw httpError("User was not found.", 404);
@@ -387,7 +388,7 @@ async function mutateSubscription(admin, id, action, body) {
   const current = serializeSubscription(id, snap.data());
   const update = { updatedAt: serverTimestamp(), updatedBy: admin.uid };
   if (action === "extend") {
-    const selected = body.variantId ? getVariant(body.variantId) : getVariant(current.variantId);
+    const selected = body.variantId ? await getCheckoutVariant(body.variantId) : await getCheckoutVariant(current.variantId);
     const customDays = Number(body.days || 0);
     if (!selected && !(admin.role === "super_admin" && customDays > 0)) throw httpError("Select a valid extension duration.", 400);
     const base = current.status === "active" && toDate(current.accessEndAt) && toDate(current.accessEndAt) > new Date() ? toDate(current.accessEndAt) : (body.startDate ? new Date(`${body.startDate}T00:00:00.000Z`) : new Date());
@@ -398,7 +399,7 @@ async function mutateSubscription(admin, id, action, body) {
   } else if (action === "revoke") {
     Object.assign(update, { status: "revoked", accessEndAt: new Date(), revocationReason: reason, revokedBy: admin.uid, revokedAt: serverTimestamp() });
   } else if (action === "reactivate") {
-    const selected = body.variantId ? getVariant(body.variantId) : getVariant(current.variantId);
+    const selected = body.variantId ? await getCheckoutVariant(body.variantId) : await getCheckoutVariant(current.variantId);
     if (!selected) throw httpError("Select a valid reactivation duration.", 400);
     const start = new Date();
     Object.assign(update, { status: "active", accessStartAt: start, accessEndAt: addCalendarMonths(start, selected.variant.durationMonths), reactivationReason: reason, reactivatedBy: admin.uid, reactivatedAt: serverTimestamp() });
@@ -553,6 +554,8 @@ export async function readBody(req) {
 }
 
 export { plans, getPlanSnapshot };
+
+
 
 
 
