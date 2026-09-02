@@ -1487,6 +1487,9 @@ function AdminPage({ path }) {
   const subscriptionDetailMatch = path.match(/^\/admin\/subscriptions\/([^/]+)$/);
   const orderDetailMatch = path.match(/^\/admin\/orders\/([^/]+)$/);
   const transactionDetailMatch = path.match(/^\/admin\/transactions\/([^/]+)$/);
+  const planNewMatch = path === "/admin/plans/new";
+  const planEditMatch = path.match(/^\/admin\/plans\/([^/]+)\/edit$/);
+  const planDetailMatch = path.match(/^\/admin\/plans\/([^/]+)$/);
   const resourceDetailMatch = path.match(/^\/admin\/resources\/([^/]+)$/);
   const navItem = adminNavItems.find(([itemPath]) => itemPath === path);
   const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : subscriptionDetailMatch ? "/admin/subscriptions" : orderDetailMatch ? "/admin/orders" : transactionDetailMatch ? "/admin/transactions" : planNewMatch || planEditMatch || planDetailMatch ? "/admin/plans" : resourceDetailMatch ? "/admin/resources" : path;
@@ -1515,6 +1518,7 @@ export default function App() {
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;
 }
+
 
 
 
