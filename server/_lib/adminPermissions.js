@@ -42,13 +42,20 @@ export const ROLE_PERMISSIONS = {
     ADMIN_PERMISSIONS.PAYMENTS_VIEW,
     ADMIN_PERMISSIONS.PAYMENTS_RECONCILE,
     ADMIN_PERMISSIONS.REFUNDS_VIEW,
+    ADMIN_PERMISSIONS.REFUNDS_MANAGE,
     ADMIN_PERMISSIONS.PLANS_VIEW,
+    ADMIN_PERMISSIONS.PLANS_MANAGE,
     ADMIN_PERMISSIONS.RESOURCES_VIEW,
     ADMIN_PERMISSIONS.RESOURCES_MANAGE,
+    ADMIN_PERMISSIONS.TARGETS_VIEW,
+    ADMIN_PERMISSIONS.TARGETS_MANAGE,
+    ADMIN_PERMISSIONS.CLASSES_VIEW,
+    ADMIN_PERMISSIONS.CLASSES_MANAGE,
     ADMIN_PERMISSIONS.SUPPORT_VIEW,
     ADMIN_PERMISSIONS.SUPPORT_MANAGE,
     ADMIN_PERMISSIONS.REPORTS_VIEW,
-    ADMIN_PERMISSIONS.REPORTS_EXPORT
+    ADMIN_PERMISSIONS.REPORTS_EXPORT,
+    ADMIN_PERMISSIONS.ACTIVITY_LOGS_VIEW
   ],
   support: [
     ADMIN_PERMISSIONS.DASHBOARD_VIEW,
@@ -81,6 +88,7 @@ export function isLimitedAdminRole(role) {
 
 export function permissionsForRole(role, explicitPermissions = []) {
   if (role === "super_admin") return ROLE_PERMISSIONS.super_admin;
+  if (role === "admin") return ROLE_PERMISSIONS.admin;
   const allowed = new Set(ROLE_PERMISSIONS[role] || []);
   const explicit = Array.isArray(explicitPermissions) ? explicitPermissions : [];
   return explicit.length ? explicit.filter((permission) => allowed.has(permission)) : [...allowed];

@@ -1,4 +1,4 @@
-﻿import { getStorage } from "firebase-admin/storage";
+import { getStorage } from "firebase-admin/storage";
 import { getDb, requireUser, serverTimestamp } from "./firebaseAdmin.js";
 import { hasPermission, writeAdminActivityLog } from "./adminAuth.js";
 import { getVariant, plans } from "./plans.js";
@@ -43,6 +43,21 @@ function listValue(value) {
   return [...new Set(value.map((item) => cleanText(item, 120)).filter(Boolean))];
 }
 
+function canonicalAccessId(value) {
+  return cleanText(value, 160).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function canonicalPlanId(value) {
+  const key = canonicalAccessId(value);
+  const plan = plans.find((item) => [item.planId, item.slug, item.name].some((candidate) => canonicalAccessId(candidate) === key));
+  return plan?.planId || key;
+}
+
+function canonicalVariantId(value) {
+  const key = canonicalAccessId(value);
+  const variant = plans.flatMap((plan) => plan.variants).find((item) => canonicalAccessId(item.variantId) === key);
+  return variant?.variantId || key;
+}
 function safeHttpsUrl(value) {
   const text = String(value || "").trim().slice(0, 1200);
   if (!text) return "";
@@ -55,8 +70,8 @@ function safeHttpsUrl(value) {
 }
 
 function planAssignments(body = {}) {
-  const planIds = listValue(body.planIds).filter((id) => plans.some((plan) => plan.planId === id));
-  const variantIds = listValue(body.variantIds).filter((id) => getVariant(id));
+  const planIds = listValue(body.planIds);
+  const variantIds = listValue(body.variantIds);
   return { planIds, variantIds };
 }
 
@@ -75,12 +90,20 @@ function planLabels(planIds = [], variantIds = []) {
 
 function isNowPublished(data = {}) {
   if (data.status !== "published") return false;
-  const publishAt = toDate(data.publishAt);
-  return !publishAt || publishAt.getTime() <= Date.now();
+  const publishAt = toDate(data.publishAt || data.publishedAt || data.startAt || data.weekStart || data.targetDate);
+  const expiresAt = toDate(data.expiresAt || data.expiryAt || data.dueAt || data.endAt);
+  const now = Date.now();
+  return (!publishAt || publishAt.getTime() <= now) && (!expiresAt || expiresAt.getTime() >= now);
 }
 
 function isStudentVisible(collection, data = {}) {
-  if (collection === "classes") return ["published", "upcoming", "live", "recorded"].includes(data.status || "draft");
+  if (collection === "classes") {
+    if (!["published", "upcoming", "live", "recorded"].includes(data.status || "draft")) return false;
+    const publishAt = toDate(data.publishAt || data.publishedAt);
+    const expiresAt = toDate(data.expiresAt || data.endAt);
+    const now = Date.now();
+    return (!publishAt || publishAt.getTime() <= now) && (!expiresAt || expiresAt.getTime() >= now);
+  }
   return isNowPublished(data);
 }
 
@@ -141,7 +164,7 @@ function sanitizeResource(id, data = {}, { includePrivate = true, entitlement = 
   return base;
 }
 
-function sanitizeTarget(id, data = {}, { includePrivate = true } = {}) {
+function sanitizeTarget(id, data = {}, { includePrivate = true, entitlement = null } = {}) {
   const assignments = planAssignments(data);
   return {
     id,
@@ -150,6 +173,11 @@ function sanitizeTarget(id, data = {}, { includePrivate = true } = {}) {
     description: cleanText(data.description, 1200),
     cadence: data.cadence === "weekly" ? "weekly" : "daily",
     status: TARGET_STATUS.has(data.status) ? data.status : "draft",
+    accessScope: data.accessScope === "public" ? "public" : data.accessScope === "all_plans" ? "all_plans" : "plan",
+    publishAt: iso(data.publishAt || data.publishedAt || data.startAt || data.weekStart || data.targetDate),
+    startAt: iso(data.startAt || data.weekStart || data.targetDate),
+    dueAt: iso(data.dueAt || data.endAt || data.targetDate),
+    expiresAt: iso(data.expiresAt || data.expiryAt || data.dueAt || data.endAt),
     targetDate: iso(data.targetDate),
     weekStart: iso(data.weekStart),
     tasks: Array.isArray(data.tasks) ? data.tasks.map((task, index) => ({ id: cleanText(task.id || `task-${index + 1}`, 80), title: cleanText(task.title || task, 220), subject: cleanText(task.subject, 120), estimatedMinutes: Number(task.estimatedMinutes || 0) || 0 })).filter((task) => task.title) : [],
@@ -160,11 +188,12 @@ function sanitizeTarget(id, data = {}, { includePrivate = true } = {}) {
     updatedAt: iso(data.updatedAt),
     deletedAt: iso(data.deletedAt),
     createdBy: includePrivate ? data.createdBy || "" : undefined,
-    updatedBy: includePrivate ? data.updatedBy || "" : undefined
+    updatedBy: includePrivate ? data.updatedBy || "" : undefined,
+    entitlement: entitlement || { allowed: false, reason: "not_checked" }
   };
 }
 
-function sanitizeClass(id, data = {}, { includePrivate = true } = {}) {
+function sanitizeClass(id, data = {}, { includePrivate = true, entitlement = null } = {}) {
   const assignments = planAssignments(data);
   const status = CLASS_STATUS.has(data.status) ? data.status : "draft";
   const start = toDate(data.startAt);
@@ -177,6 +206,7 @@ function sanitizeClass(id, data = {}, { includePrivate = true } = {}) {
     title: cleanText(data.title || "Untitled class", 180),
     description: cleanText(data.description, 900),
     status,
+    accessScope: data.accessScope === "public" ? "public" : data.accessScope === "all_plans" ? "all_plans" : "plan",
     mode: data.mode === "recorded" ? "recorded" : "live",
     startAt: iso(start),
     endAt: iso(end),
@@ -191,7 +221,8 @@ function sanitizeClass(id, data = {}, { includePrivate = true } = {}) {
     deletedAt: iso(data.deletedAt),
     canJoin: Boolean(canJoin),
     createdBy: includePrivate ? data.createdBy || "" : undefined,
-    updatedBy: includePrivate ? data.updatedBy || "" : undefined
+    updatedBy: includePrivate ? data.updatedBy || "" : undefined,
+    entitlement: entitlement || { allowed: false, reason: "not_checked" }
   };
 }
 
@@ -212,7 +243,7 @@ function validateResourceForPublish(data = {}) {
 function validateTargetForPublish(data = {}) {
   if (!cleanText(data.title)) fail(400, "Target title is required before publishing.", "INVALID_TARGET");
   if (!["daily", "weekly"].includes(data.cadence)) fail(400, "Select daily or weekly cadence.", "INVALID_TARGET_CADENCE");
-  if (!hasPlanAssignment(data)) fail(400, "Assign at least one plan.", "MISSING_PLAN_ASSIGNMENT");
+  if (data.accessScope !== "public" && !hasPlanAssignment(data)) fail(400, "Assign at least one plan or explicitly mark this target as public.", "MISSING_PLAN_ASSIGNMENT");
   if (!Array.isArray(data.tasks) || data.tasks.filter((task) => cleanText(task.title || task)).length < 1) fail(400, "Add at least one task.", "MISSING_TARGET_TASKS");
   const start = toDate(data.startAt || data.weekStart || data.targetDate);
   const due = toDate(data.dueAt || data.endAt || data.targetDate);
@@ -235,25 +266,49 @@ function validateClassForPublish(data = {}) {
 }
 async function collectActiveEntitlements(uid) {
   const db = getDb();
-  const snap = await db.collection("subscriptions").where("userId", "==", uid).where("status", "==", "active").limit(100).get();
+  const snapshots = await Promise.all(["userId", "uid", "studentId"].map((field) =>
+    db.collection("subscriptions").where(field, "==", uid).limit(100).get()
+  ));
+  const documents = new Map();
+  snapshots.forEach((snap) => snap.docs.forEach((doc) => documents.set(doc.id, doc)));
   const planIds = new Set();
   const variantIds = new Set();
+  const subscriptions = [];
   const now = Date.now();
-  snap.docs.forEach((doc) => {
-    const data = doc.data() || {};
-    const end = toDate(data.accessEndAt || data.accessEnd || data.endDate || data.end_date);
-    if (end && end.getTime() <= now) return;
-    if (data.planId || data.plan_id) planIds.add(data.planId || data.plan_id);
-    if (data.variantId || data.variant_id || data.durationId) variantIds.add(data.variantId || data.variant_id || data.durationId);
-  });
-  return { uid, planIds, variantIds, hasActiveAccess: planIds.size > 0 || variantIds.size > 0 };
-}
 
+  documents.forEach((doc) => {
+    const data = doc.data() || {};
+    if (!["active", "enabled", "paid"].includes(String(data.status || "").toLowerCase())) return;
+    const start = toDate(data.accessStartAt || data.accessStart || data.startDate || data.start_date || data.createdAt);
+    const end = toDate(data.accessEndAt || data.accessEnd || data.endDate || data.end_date);
+    if (start && start.getTime() > now) return;
+    if (end && end.getTime() <= now) return;
+
+    const rawVariantId = data.variantId || data.variant_id || data.durationId || data.duration_id || data.planSnapshot?.variantId || data.trustedPlanSnapshot?.variantId;
+    const rawPlanId = data.planId || data.plan_id || data.planSnapshot?.planId || data.trustedPlanSnapshot?.planId;
+    const variantId = canonicalVariantId(rawVariantId);
+    const variantMatch = variantId ? getVariant(variantId) : null;
+    const planId = canonicalPlanId(rawPlanId || variantMatch?.plan?.planId);
+    if (!planId && !variantId) return;
+    if (planId) planIds.add(planId);
+    if (variantId) variantIds.add(variantId);
+    subscriptions.push({
+      id: doc.id,
+      planId,
+      variantId,
+      planName: data.planName || data.plan_name || data.planSnapshot?.name || data.trustedPlanSnapshot?.name || variantMatch?.plan?.name || planId,
+      accessStartAt: iso(start),
+      accessEndAt: iso(end),
+      status: "active"
+    });
+  });
+  return { uid, planIds, variantIds, subscriptions, hasActiveAccess: subscriptions.length > 0 };
+}
 function hasEntitlement(item, entitlements) {
   if (item.accessScope === "public") return { allowed: true, reason: "public" };
   if (item.accessScope === "all_plans" && entitlements.hasActiveAccess) return { allowed: true, reason: "all_plans" };
-  const planIds = listValue(item.planIds);
-  const variantIds = listValue(item.variantIds);
+  const planIds = listValue(item.planIds).map(canonicalPlanId);
+  const variantIds = listValue(item.variantIds).map(canonicalVariantId);
   if (!planIds.length && !variantIds.length) return { allowed: false, reason: "unassigned" };
   if (planIds.some((id) => entitlements.planIds.has(id))) return { allowed: true, reason: "plan" };
   if (variantIds.some((id) => entitlements.variantIds.has(id))) return { allowed: true, reason: "variant" };
@@ -431,7 +486,10 @@ export async function saveAdminTarget(admin, body = {}) {
     description: cleanText(body.description, 1200),
     cadence: body.cadence === "weekly" ? "weekly" : "daily",
     status,
+    accessScope: body.accessScope === "public" ? "public" : body.accessScope === "all_plans" ? "all_plans" : existingData.accessScope || "plan",
     ...planAssignments(body),
+    publishAt: body.publishAt ? new Date(body.publishAt) : existingData.publishAt || null,
+    expiresAt: body.expiresAt ? new Date(body.expiresAt) : existingData.expiresAt || null,
     targetDate: body.targetDate ? new Date(body.targetDate) : existingData.targetDate || null,
     startAt: body.startAt ? new Date(body.startAt) : body.targetDate ? new Date(body.targetDate) : existingData.startAt || existingData.targetDate || null,
     dueAt: body.dueAt ? new Date(body.dueAt) : body.targetDate ? new Date(body.targetDate) : existingData.dueAt || existingData.targetDate || null,
@@ -519,7 +577,7 @@ async function requireStudentEntitlements(req) {
 export async function getStudentContentDashboard(req) {
   const { user, entitlements } = await requireStudentEntitlements(req);
   const [resources, targets, classes] = await Promise.all([listStudentResources(req, { limit: 6 }), listStudentTargets(req, { limit: 4 }), listStudentClasses(req, { limit: 4 })]);
-  return { user: { uid: user.uid, email: user.email || "", displayName: user.name || user.email || "Student" }, access: { planIds: [...entitlements.planIds], variantIds: [...entitlements.variantIds], active: entitlements.hasActiveAccess }, resources: resources.resources.items, targets: targets.targets.items, classes: classes.classes.items };
+  return { user: { uid: user.uid, email: user.email || "", displayName: user.name || user.email || "Student" }, access: { planIds: [...entitlements.planIds], variantIds: [...entitlements.variantIds], active: entitlements.hasActiveAccess, subscriptions: entitlements.subscriptions }, resources: resources.resources.items, targets: targets.targets.items, classes: classes.classes.items };
 }
 
 async function listEntitled(collection, sanitizer, req, query = {}) {
@@ -530,11 +588,12 @@ async function listEntitled(collection, sanitizer, req, query = {}) {
     const entitlement = hasEntitlement(data, entitlements);
     return { data, item: sanitizer(doc.id, data, { includePrivate: false, entitlement }) };
   }).filter(({ data, item }) => isStudentVisible(collection, data) && item.entitlement.allowed).map(({ item }) => item);
-  return { items: applyQuery(items, query), total: items.length, page: 1, pageSize: items.length };
+  return { items: applyQuery(items, query), total: items.length, page: 1, pageSize: items.length, access: { active: entitlements.hasActiveAccess, planIds: [...entitlements.planIds], variantIds: [...entitlements.variantIds], subscriptions: entitlements.subscriptions } };
 }
 
 export async function listStudentResources(req, query = {}) {
-  return { resources: await listEntitled("resources", sanitizeResource, req, query) };
+  const resources = await listEntitled("resources", sanitizeResource, req, query);
+  return { resources, access: resources.access };
 }
 
 export async function getStudentResource(req, id) {
@@ -569,7 +628,8 @@ export async function recordResourceView(req, body = {}) {
 }
 
 export async function listStudentTargets(req, query = {}) {
-  return { targets: await listEntitled("targets", sanitizeTarget, req, query) };
+  const targets = await listEntitled("targets", sanitizeTarget, req, query);
+  return { targets, access: targets.access };
 }
 
 export async function getStudentTarget(req, id) {
@@ -593,7 +653,8 @@ export async function updateTargetProgress(req, body = {}) {
 }
 
 export async function listStudentClasses(req, query = {}) {
-  return { classes: await listEntitled("classes", sanitizeClass, req, query) };
+  const classes = await listEntitled("classes", sanitizeClass, req, query);
+  return { classes, access: classes.access };
 }
 
 export async function joinClass(req, body = {}) {
