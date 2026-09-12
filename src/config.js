@@ -57,3 +57,13 @@ export const seedResources = [
 ];
 
 
+
+export const socialLinks = [
+  { platform: "youtube", url: "https://www.youtube.com/@DelightBanking", accessibleLabel: "Visit Delight Banking on YouTube", active: true, displayOrder: 1, headerVisible: true, footerVisible: true, contactVisible: true },
+  { platform: "telegram", url: "", accessibleLabel: "Visit Delight Banking on Telegram", active: false, displayOrder: 2, headerVisible: false, footerVisible: false, contactVisible: false },
+  { platform: "instagram", url: "", accessibleLabel: "Visit Delight Banking on Instagram", active: false, displayOrder: 3, headerVisible: false, footerVisible: false, contactVisible: false },
+  { platform: "whatsapp", url: "", accessibleLabel: "Contact Delight Banking on WhatsApp", active: false, displayOrder: 4, headerVisible: false, footerVisible: false, contactVisible: false },
+  { platform: "facebook", url: "", accessibleLabel: "Visit Delight Banking on Facebook", active: false, displayOrder: 5, headerVisible: false, footerVisible: false, contactVisible: false },
+  { platform: "x", url: "", accessibleLabel: "Visit Delight Banking on X", active: false, displayOrder: 6, headerVisible: false, footerVisible: false, contactVisible: false },
+  { platform: "linkedin", url: "", accessibleLabel: "Visit Delight Banking on LinkedIn", active: false, displayOrder: 7, headerVisible: false, footerVisible: false, contactVisible: false }
+];

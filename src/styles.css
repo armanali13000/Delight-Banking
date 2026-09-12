@@ -3178,3 +3178,5 @@ body.mobile-nav-locked {
   display: grid;
   gap: 1rem;
 }
+
+.contact-page{min-height:70vh}.contact-layout{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:2rem;align-items:start}.contact-form{display:grid;gap:.65rem;min-width:0}.contact-form label{display:grid;gap:.35rem}.contact-form input,.contact-form select,.contact-form textarea{width:100%;max-width:100%;box-sizing:border-box}.contact-honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}.field-error{color:#b42318}.social-link{display:inline-flex;align-items:center;gap:.4rem}.social-link svg{width:1.35rem;height:1.35rem;fill:#f00;flex:none}@media(max-width:760px){.contact-layout{grid-template-columns:1fr}.contact-form{width:100%;overflow:hidden}}

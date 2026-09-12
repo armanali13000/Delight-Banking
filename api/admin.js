@@ -66,8 +66,9 @@ import {
   updatePlanVariant
 } from "../server/_lib/planManagement.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
+import { getContactEnquiry, listContactEnquiries, updateContactEnquiry } from "../server/_lib/support.js";
 
-const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes"]);
+const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes", "support"]);
 const ACTIONS = new Set([
   "update_admin_profile",
   "update_user",
@@ -122,7 +123,14 @@ const ACTIONS = new Set([
   "publish_plan",
   "duplicate_plan",
   "update_plan",
-  "create_plan"
+  "create_plan",
+  "assign_enquiry",
+  "add_enquiry_note",
+  "mark_enquiry_open",
+  "mark_enquiry_in_progress",
+  "mark_enquiry_resolved",
+  "mark_enquiry_closed",
+  "reopen_enquiry"
 ]);
 
 function cleanText(value, max = 240) {
@@ -259,6 +267,11 @@ async function handleGet(req, res, resource) {
     sendJson(res, 200, id ? await getAdminTarget(admin, id) : await listAdminTargets(admin, req.query || {}));
     return;
   }
+  if (resource === "support") {
+    const id = queryId(req, "enquiryId");
+    sendJson(res, 200, id ? await getContactEnquiry(admin, id) : await listContactEnquiries(admin, req.query || {}));
+    return;
+  }
   if (resource === "classes") {
     const id = queryId(req, "classId");
     sendJson(res, 200, id ? await getAdminClass(admin, id) : await listAdminClasses(admin, req.query || {}));
@@ -297,6 +310,10 @@ async function handlePost(req, res) {
   if (action === "revoke_administrator") return sendJson(res, 200, await revokeAdministrator(req, cleanText(body.uid, 240), body));
 
   const admin = await requireAdmin(req);
+  if (["assign_enquiry", "add_enquiry_note", "mark_enquiry_open", "mark_enquiry_in_progress", "mark_enquiry_resolved", "mark_enquiry_closed", "reopen_enquiry"].includes(action)) {
+    const supportAction = action.replace(/_enquiry/, "").replace("assign", "assign").replace("add_note", "add_note");
+    return sendJson(res, 200, await updateContactEnquiry(admin, cleanText(body.enquiryId, 240), { ...body, action: supportAction }));
+  }
   if (action === "update_user") return sendJson(res, 200, await updateUserProfile(admin, cleanText(body.uid, 240), body));
   if (action === "update_user_status") return sendJson(res, 200, await updateUserStatus(admin, cleanText(body.uid, 240), body));
   if (action === "grant_subscription") return sendJson(res, 200, await grantSubscription(admin, body));

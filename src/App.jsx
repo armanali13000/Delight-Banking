@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { load } from "@cashfreepayments/cashfree-js";
 import { AuthModal } from "./components/AuthModal.jsx";
 import { Brand } from "./components/Brand.jsx";
-import { appBase, exams, getPlanVariant, mentorPhotoPath, plans } from "./config.js";
+import { appBase, exams, getPlanVariant, mentorPhotoPath, plans, socialLinks } from "./config.js";
 import {
   addResource,
   createPaymentOrder,
@@ -86,7 +86,10 @@ import {
   setAdminResourceStatus,
   setAdminTargetStatus,
   updateStudentTargetProgress,
-  uploadProtectedResourceFile
+  uploadProtectedResourceFile,
+  submitContactEnquiry,
+  getAdminEnquiries,
+  updateAdminEnquiry
 } from "./services/dataService.js";
 
 const examCards = [
@@ -262,6 +265,14 @@ function daysRemaining(value) {
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 86400000));
 }
 
+function safeInternalDestination(value, fallback = appBase) {
+  try {
+    const decoded = decodeURIComponent(value || "");
+    const url = new URL(decoded, window.location.origin);
+    return url.origin === window.location.origin && url.pathname.startsWith(appBase) ? url.pathname + url.search + url.hash : fallback;
+  } catch { return fallback; }
+}
+
 function routeTo(path, options = {}) {
   if (options.replace) window.history.replaceState({}, "", path);
   else window.history.pushState({}, "", path);
@@ -293,8 +304,14 @@ const publicNavLinks = [
   [`${appBase}about`, "About"],
   [`${appBase}#strategy`, "Platform"],
   [`${appBase}#plans`, "Plans"],
-  [`${appBase}#contact`, "Contact"]
+  [`${appBase}contact`, "Contact"]
 ];
+
+function YouTubeLink({ className = "social-link" }) {
+  const link = socialLinks.find((item) => item.platform === "youtube" && item.active);
+  if (!link) return null;
+  return <a className={className} href={link.url} target="_blank" rel="noopener noreferrer" aria-label={link.accessibleLabel}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 7.2a2.8 2.8 0 0 0-2-2C17.8 4.7 12 4.7 12 4.7s-5.8 0-7.6.5a2.8 2.8 0 0 0-2 2A29 29 0 0 0 2 12a29 29 0 0 0 .4 4.8 2.8 2.8 0 0 0 2 2c1.8.5 7.6.5 7.6.5s5.8 0 7.6-.5a2.8 2.8 0 0 0 2-2A29 29 0 0 0 22 12a29 29 0 0 0-.4-4.8ZM10 15.2V8.8l5.5 3.2-5.5 3.2Z" /></svg><span>YouTube</span></a>;
+}
 
 function Header({ user, onAuth, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
@@ -373,6 +390,7 @@ function Header({ user, onAuth, onLogout }) {
       <nav className="main-nav" aria-label="Primary navigation">
         {publicNavLinks.map(([href, label]) => <a href={href} key={label}>{label}</a>)}
         <a href={`${appBase}student-desk`}>Student Desk</a>
+        <YouTubeLink />
       </nav>
       <div className="header-actions">
         <button className="icon-button theme-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>{theme === "dark" ? <SunIcon /> : <MoonIcon />}</button>
@@ -393,6 +411,7 @@ function Header({ user, onAuth, onLogout }) {
           <nav className="mobile-nav-links" aria-label="Mobile primary navigation">
             {publicNavLinks.map(([href, label]) => <a href={href} key={label} onClick={closeMenus}>{label}</a>)}
             <a href={`${appBase}student-desk`} onClick={closeMenus}>Student Desk</a>
+            <YouTubeLink />
           </nav>
           <div className="mobile-account-section"><span className="menu-label">Account</span><AccountActions mobile /></div>
         </aside>
@@ -640,6 +659,7 @@ function ProfileForm({ profile, user, profileMessage, updateProfile, saveProfile
 
 function StudentContentDeskPage({ path }) {
   const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [authMode, setAuthMode] = useState(null);
   const [data, setData] = useState(null);
   const [message, setMessage] = useState("Loading student content...");
@@ -647,7 +667,7 @@ function StudentContentDeskPage({ path }) {
   const resourceMatch = path.match(/^\/student-desk\/resources\/([^/]+)$/);
   const targetMatch = path.match(/^\/student-desk\/targets\/([^/]+)$/);
   const view = resourceMatch ? "resource" : targetMatch ? "target" : path.includes("/resources") ? "resources" : path.includes("/classes") ? "classes" : path.includes("/targets") ? "targets" : "dashboard";
-  useEffect(() => listenToAuth(setUser), []);
+  useEffect(() => listenToAuth((nextUser) => { setUser(nextUser); setAuthReady(true); }), []);
   async function loadContent() {
     setLoadState("loading");
     setMessage("Loading student content...");
@@ -664,13 +684,14 @@ function StudentContentDeskPage({ path }) {
   }
   useEffect(() => { if (user) loadContent(); }, [user?.uid, path]);
   async function logout() { await signOutUser(); setUser(null); }
+  if (!authReady) return <main className="desk-page"><AdminLoadingSkeleton /></main>;
   if (!user) return <Shell user={user} onAuth={setAuthMode}><main className="desk-page"><section className="admin-gate"><div className="premium-card gate-card student-login-gate"><Brand small="Student Desk" /><h1>Login to open Student Desk</h1><p>Sign in to view protected resources, classes, targets, subscriptions, and payment history.</p><button className="primary-button" type="button" onClick={() => setAuthMode("signin")}>Login</button></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
   const resources = data?.resources?.items || data?.resources || [];
   const targets = data?.targets?.items || data?.targets || [];
   const classes = data?.classes?.items || data?.classes || [];
   const resource = data?.resource;
   const target = data?.target;
-  return <Shell user={user} onAuth={setAuthMode} onLogout={logout}><main className="desk-page"><section className="student-dashboard-shell" id="student-desk"><aside className="student-sidebar"><div className="sidebar-profile"><div className="profile-logo">{(user.displayName || user.email || "S").slice(0, 1).toUpperCase()}</div><h3>{user.displayName || "Student"}</h3><p>{user.email}</p></div><nav className="dashboard-menu"><a className={view === "dashboard" ? "active" : ""} href={`${appBase}student-desk`}>Dashboard</a><a className={view === "resources" || view === "resource" ? "active" : ""} href={`${appBase}student-desk/resources`}>Resources</a><a className={view === "classes" ? "active" : ""} href={`${appBase}student-desk/classes`}>Classes</a><a className={view === "targets" || view === "target" ? "active" : ""} href={`${appBase}student-desk/targets`}>Targets</a></nav><div className="subscription-box"><span className="menu-label">Active access</span>{data?.access?.active ? data.access.planIds.map((planId) => <span className="status-pill" key={planId}>{planId}</span>) : <p>No active content access found.</p>}</div></aside><div className="student-dashboard-main"><div className="dashboard-topbar"><div><p className="eyebrow">Student Desk</p><h1 className="page-title">{view === "resource" ? resource?.title || "Resource" : view === "target" ? target?.title || "Target" : titleLabel(view)}</h1></div><button className="ghost-button" type="button" onClick={loadContent}>Refresh</button></div>{loadState === "loading" ? <article className="admin-empty-state"><h3>Loading student content</h3><p>Please wait while your plan and assignments are checked.</p></article> : loadState === "error" ? <AdminEmptyState title="Server request failed" text={message} onRetry={loadContent} /> : <>{view === "dashboard" && <div className="dashboard-view"><div className="desk-stats"><article className="stat-card"><span>Resources</span><strong>{resources.length}</strong></article><article className="stat-card"><span>Targets</span><strong>{targets.length}</strong></article><article className="stat-card"><span>Classes</span><strong>{classes.length}</strong></article></div><StudentResourceCards resources={resources} /><StudentTargetCards targets={targets} access={data?.access} /><StudentClassCards classes={classes} /></div>}{view === "resources" && <StudentResourceCards resources={resources} />}{view === "classes" && <StudentClassCards classes={classes} />}{view === "targets" && <StudentTargetCards targets={targets} access={data?.access} />}{view === "resource" && resource && <StudentResourceDetail resource={resource} />}{view === "target" && target && <StudentTargetDetail target={target} progress={data.progress} onSave={async (completedTaskIds) => { await updateStudentTargetProgress(target.id, { completedTaskIds }); await loadContent(); }} />}</>}</div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+  return <Shell user={user} onAuth={setAuthMode} onLogout={logout}><main className="desk-page"><section className="student-dashboard-shell" id="student-desk"><aside className="student-sidebar"><div className="sidebar-profile"><div className="profile-logo">{(user.displayName || user.email || "S").slice(0, 1).toUpperCase()}</div><h3>{user.displayName || "Student"}</h3><p>{user.email}</p></div><nav className="dashboard-menu"><a className={view === "dashboard" ? "active" : ""} href={`${appBase}student-desk`}>Dashboard</a><a className={view === "resources" || view === "resource" ? "active" : ""} href={`${appBase}student-desk/resources`}>Resources</a><a className={view === "classes" ? "active" : ""} href={`${appBase}student-desk/classes`}>Classes</a><a className={view === "targets" || view === "target" ? "active" : ""} href={`${appBase}student-desk/targets`}>Targets</a></nav><a className="menu-link" href={`${appBase}contact`}>Contact support</a><div className="subscription-box"><span className="menu-label">Active access</span>{data?.access?.active ? data.access.planIds.map((planId) => <span className="status-pill" key={planId}>{planId}</span>) : <p>No active content access found.</p>}</div></aside><div className="student-dashboard-main"><div className="dashboard-topbar"><div><p className="eyebrow">Student Desk</p><h1 className="page-title">{view === "resource" ? resource?.title || "Resource" : view === "target" ? target?.title || "Target" : titleLabel(view)}</h1></div><button className="ghost-button" type="button" onClick={loadContent}>Refresh</button></div>{loadState === "loading" ? <article className="admin-empty-state"><h3>Loading student content</h3><p>Please wait while your plan and assignments are checked.</p></article> : loadState === "error" ? <AdminEmptyState title="Server request failed" text={message} onRetry={loadContent} /> : <>{view === "dashboard" && <div className="dashboard-view"><div className="desk-stats"><article className="stat-card"><span>Resources</span><strong>{resources.length}</strong></article><article className="stat-card"><span>Targets</span><strong>{targets.length}</strong></article><article className="stat-card"><span>Classes</span><strong>{classes.length}</strong></article></div><StudentResourceCards resources={resources} /><StudentTargetCards targets={targets} access={data?.access} /><StudentClassCards classes={classes} /></div>}{view === "resources" && <StudentResourceCards resources={resources} />}{view === "classes" && <StudentClassCards classes={classes} />}{view === "targets" && <StudentTargetCards targets={targets} access={data?.access} />}{view === "resource" && resource && <StudentResourceDetail resource={resource} />}{view === "target" && target && <StudentTargetDetail target={target} progress={data.progress} onSave={async (completedTaskIds) => { await updateStudentTargetProgress(target.id, { completedTaskIds }); await loadContent(); }} />}</>}</div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 
 function StudentResourceCards({ resources = [] }) {
@@ -706,7 +727,7 @@ function AboutPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
   useEffect(() => { listenToAuth(setUser); }, []);
-  return <Shell user={user} onAuth={setAuthMode}><main className="about-page"><section className="section about-hero"><div className="about-copy"><p className="eyebrow">Meet Your Mentor</p><h1 className="page-title">Imran Sir</h1><p className="mentor-role">Banking Examination Mentor</p><p>Imran Sir guides banking and insurance examination aspirants through structured preparation targets, practical strategies, mock-test analysis and plan-specific mentorship.</p><div className="hero-actions"><a className="primary-button" href={`${appBase}#plans`}>View Mentorship Plans</a><a className="ghost-button" href="https://www.youtube.com/@DelightBanking" target="_blank" rel="noreferrer">YouTube Channel</a></div></div><div className="about-photo-wrap"><img src={mentorPhotoPath} width="1280" height="1024" loading="eager" alt="Imran Sir, banking examination mentor at Delight Banking" /></div></section><section className="section about-detail-grid"><article className="premium-card"><h2>Mentor Introduction</h2><p>Students learn through a practical mentorship style focused on preparation discipline, exam-specific planning and regular performance review.</p></article><article className="premium-card"><h2>Teaching Approach</h2><p>The guidance emphasizes clear targets, consistent revision, doubt resolution and honest analysis of weak areas.</p></article><article className="premium-card"><h2>Banking-Exam Preparation Strategy</h2><p>Preparation is organized around prelims speed, mains depth, current affairs retention and exam-day decision making.</p></article><article className="premium-card"><h2>Target-Based Mentorship</h2><p>Daily and weekly targets help aspirants keep their study routine measurable and easier to correct when progress slows.</p></article><article className="premium-card"><h2>Mock-Analysis Approach</h2><p>Mock tests are reviewed for accuracy, time allocation, skipped questions, repeated mistakes and next-step correction targets.</p></article><article className="premium-card"><h2>Delight Banking Mission</h2><p>Delight Banking exists to give banking and insurance aspirants structured guidance, useful resources and plan-based mentorship without result guarantees.</p></article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+  return <Shell user={user} onAuth={setAuthMode}><main className="about-page"><section className="section about-hero"><div className="about-copy"><p className="eyebrow">Meet Your Mentor</p><h1 className="page-title">Imran Sir</h1><p className="mentor-role">Banking Examination Mentor</p><p>Imran Sir guides banking and insurance examination aspirants through structured preparation targets, practical strategies, mock-test analysis and plan-specific mentorship.</p><div className="hero-actions"><a className="primary-button" href={`${appBase}#plans`}>View Mentorship Plans</a><YouTubeLink className="ghost-button social-link" /></div></div><div className="about-photo-wrap"><img src={mentorPhotoPath} width="1280" height="1024" loading="eager" alt="Imran Sir, banking examination mentor at Delight Banking" /></div></section><section className="section about-detail-grid"><article className="premium-card"><h2>Mentor Introduction</h2><p>Students learn through a practical mentorship style focused on preparation discipline, exam-specific planning and regular performance review.</p></article><article className="premium-card"><h2>Teaching Approach</h2><p>The guidance emphasizes clear targets, consistent revision, doubt resolution and honest analysis of weak areas.</p></article><article className="premium-card"><h2>Banking-Exam Preparation Strategy</h2><p>Preparation is organized around prelims speed, mains depth, current affairs retention and exam-day decision making.</p></article><article className="premium-card"><h2>Target-Based Mentorship</h2><p>Daily and weekly targets help aspirants keep their study routine measurable and easier to correct when progress slows.</p></article><article className="premium-card"><h2>Mock-Analysis Approach</h2><p>Mock tests are reviewed for accuracy, time allocation, skipped questions, repeated mistakes and next-step correction targets.</p></article><article className="premium-card"><h2>Delight Banking Mission</h2><p>Delight Banking exists to give banking and insurance aspirants structured guidance, useful resources and plan-based mentorship without result guarantees.</p></article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 function PrivacyPolicyPage() {
   const [authMode, setAuthMode] = useState(null);
@@ -863,7 +884,7 @@ function AdminRouteGuard({ path, children }) {
   }, [path]);
 
   useEffect(() => {
-    if (state.status === "unauthenticated") routeTo(`${appBase}admin/login`, { replace: true });
+    if (state.status === "unauthenticated") routeTo(`${appBase}admin/login?next=${encodeURIComponent(path)}`, { replace: true });
   }, [state.status]);
 
   if (state.status === "loading") return <AdminLoadingSkeleton />;
@@ -873,6 +894,7 @@ function AdminRouteGuard({ path, children }) {
   return children(state.admin);
 }
 function AdminLoginPage() {
+  const requestedDestination = safeInternalDestination(new URLSearchParams(window.location.search).get("next"), `${appBase}admin`);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -894,7 +916,7 @@ function AdminLoginPage() {
       }
       try {
         await getAdminMe({ forceRefresh: true, logAccess: true });
-        if (!cancelled) routeTo(`${appBase}admin`);
+        if (!cancelled) routeTo(requestedDestination);
       } catch {
         if (!cancelled) {
           setCheckingSession(false);
@@ -919,7 +941,7 @@ function AdminLoginPage() {
     try {
       await action();
       await getAdminMe({ forceRefresh: true, logAccess: true });
-      routeTo(`${appBase}admin`);
+      routeTo(requestedDestination);
     } catch {
       setAccessDenied(true);
       setMessage("This account does not have administrative access.");
@@ -1632,10 +1654,55 @@ function AdminPage({ path }) {
   const resourceDetailMatch = path.match(/^\/admin\/resources\/([^/]+)$/);
   const navItem = adminNavItems.find(([itemPath]) => itemPath === path);
   const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : subscriptionDetailMatch ? "/admin/subscriptions" : orderDetailMatch ? "/admin/orders" : transactionDetailMatch ? "/admin/transactions" : planNewMatch || planEditMatch || planDetailMatch ? "/admin/plans" : resourceDetailMatch ? "/admin/resources" : path;
-  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/plans" ? <AdminPlansPage admin={admin} /> : planNewMatch ? <AdminPlanEditorPage admin={admin} id="new" /> : planEditMatch ? <AdminPlanEditorPage admin={admin} id={decodeURIComponent(planEditMatch[1])} /> : planDetailMatch ? <AdminPlanDetailPage admin={admin} id={decodeURIComponent(planDetailMatch[1])} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/plans" ? <AdminPlansPage admin={admin} /> : planNewMatch ? <AdminPlanEditorPage admin={admin} id="new" /> : planEditMatch ? <AdminPlanEditorPage admin={admin} id={decodeURIComponent(planEditMatch[1])} /> : planDetailMatch ? <AdminPlanDetailPage admin={admin} id={decodeURIComponent(planDetailMatch[1])} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : path === "/admin/support" ? <AdminSupportPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
 }
+function ContactPage() {
+  const empty = { fullName: "", email: "", mobile: "", category: "general_enquiry", relatedPlan: "", subject: "", message: "", consent: false, website: "" };
+  const [form, setForm] = useState(empty);
+  const [state, setState] = useState({ status: "idle", message: "", referenceId: "" });
+  const [errors, setErrors] = useState({});
+  const categories = [["plan_enquiry", "Plan enquiry"], ["payment_help", "Payment help"], ["subscription_help", "Subscription help"], ["resource_access", "Resource access"], ["targets", "Targets"], ["classes", "Classes"], ["refund_question", "Refund question"], ["technical_problem", "Technical problem"], ["general_enquiry", "General enquiry"], ["other", "Other"]];
+  function update(field, value) { setForm((current) => ({ ...current, [field]: value })); setErrors((current) => ({ ...current, [field]: "" })); }
+  async function submit(event) {
+    event.preventDefault();
+    const next = {};
+    if (form.fullName.trim().length < 2) next.fullName = "Enter your full name.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) next.email = "Enter a valid email.";
+    if (form.subject.trim().length < 3) next.subject = "Enter a subject.";
+    if (form.message.trim().length < 10) next.message = "Enter at least 10 characters.";
+    if (!form.consent) next.consent = "Consent is required.";
+    setErrors(next);
+    if (Object.keys(next).length) return;
+    setState({ status: "loading", message: "", referenceId: "" });
+    try {
+      const result = await submitContactEnquiry(form);
+      setState({ status: "success", message: "Thank you. Your enquiry has been received. Please save your reference ID for future communication.", referenceId: result.referenceId });
+      setForm(empty);
+    } catch (error) {
+      setState({ status: "error", message: error.message || "Could not submit your enquiry.", referenceId: "" });
+    }
+  }
+  return <Shell><main className="contact-page"><section className="section contact-layout"><article><p className="eyebrow">Contact Delight Banking</p><h1 className="page-title">How can we help?</h1><p>Ask about plans, subscriptions, payments, targets, classes, or technical access.</p><YouTubeLink /><p>For account-specific help, sign in first so your verified account can be attached automatically.</p></article><form className="premium-card contact-form" onSubmit={submit} noValidate><label>Full name<input value={form.fullName} onChange={(e) => update("fullName", e.target.value)} autoComplete="name" aria-invalid={Boolean(errors.fullName)} /></label>{errors.fullName && <small className="field-error">{errors.fullName}</small>}<label>Email address<input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} autoComplete="email" aria-invalid={Boolean(errors.email)} /></label>{errors.email && <small className="field-error">{errors.email}</small>}<label>Mobile number (optional)<input type="tel" value={form.mobile} onChange={(e) => update("mobile", e.target.value)} autoComplete="tel" /></label><label>Enquiry category<select value={form.category} onChange={(e) => update("category", e.target.value)}>{categories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Related plan (optional)<select value={form.relatedPlan} onChange={(e) => update("relatedPlan", e.target.value)}><option value="">No specific plan</option>{plans.map((plan) => <option key={plan.planId} value={plan.planId}>{plan.name}</option>)}</select></label><label>Subject<input value={form.subject} onChange={(e) => update("subject", e.target.value)} aria-invalid={Boolean(errors.subject)} /></label>{errors.subject && <small className="field-error">{errors.subject}</small>}<label>Message<textarea rows="6" value={form.message} onChange={(e) => update("message", e.target.value)} aria-invalid={Boolean(errors.message)} /></label>{errors.message && <small className="field-error">{errors.message}</small>}<label className="contact-honeypot" aria-hidden="true">Website<input tabIndex="-1" autoComplete="off" value={form.website} onChange={(e) => update("website", e.target.value)} /></label><label className="checkbox-row"><input type="checkbox" checked={form.consent} onChange={(e) => update("consent", e.target.checked)} /> I consent to Delight Banking using these details to respond to this enquiry.</label>{errors.consent && <small className="field-error">{errors.consent}</small>}<button className="primary-button full" type="submit" disabled={state.status === "loading"}>{state.status === "loading" ? "Submitting..." : "Submit enquiry"}</button>{state.status === "success" && <div className="form-message success" role="status"><p>{state.message}</p><strong>Reference ID: {state.referenceId}</strong></div>}{state.status === "error" && <div className="form-message" role="alert"><p>{state.message}</p><button className="ghost-button" type="submit">Retry</button></div>}</form></section></main></Shell>;
+}
+
+function AdminSupportPage({ admin }) {
+  const [filters, setFilters] = useState({ q: "", category: "", status: "", start: "", end: "" });
+  const [data, setData] = useState(null);
+  const [message, setMessage] = useState("Loading enquiries...");
+  async function load() { setMessage("Loading enquiries..."); try { setData(await getAdminEnquiries(filters)); setMessage(""); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { load(); }, [JSON.stringify(filters)]);
+  async function act(id, action, payload = {}) { try { await updateAdminEnquiry(id, action, payload); await load(); } catch (error) { setMessage(error.message); } }
+  function exportCsv() {
+    const rows = data?.enquiries?.items || [];
+    const csv = ["Reference,Name,Email,Category,Status,Subject,Created", ...rows.map((item) => [item.referenceId, item.fullName, item.email, item.category, item.status, item.subject, item.createdAt].map((value) => JSON.stringify(String(value || ""))).join(","))].join("\\n");
+    downloadTextFile("contact-enquiries.csv", csv);
+  }
+  const items = data?.enquiries?.items || [];
+  return <PermissionGate admin={admin} permission="support.view"><AdminPageHeader eyebrow="Support" title="Contact enquiries" description="Manage website contact requests without deleting historical records." admin={admin} /><section className="admin-card admin-management-toolbar"><div className="admin-filter-grid"><label>Search<input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label><label>Category<select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}><option value="">All categories</option><option value="plan_enquiry">Plan enquiry</option><option value="payment_help">Payment help</option><option value="subscription_help">Subscription help</option><option value="technical_problem">Technical problem</option></select></label><label>Status<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></label><label>Start<input type="date" value={filters.start} onChange={(e) => setFilters({ ...filters, start: e.target.value })} /></label><label>End<input type="date" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} /></label></div><button className="ghost-button" type="button" onClick={exportCsv}>Export CSV</button></section>{message ? <AdminEmptyState title="Contact enquiries" text={message} onRetry={load} /> : items.length ? <div className="resource-list">{items.map((item) => <article className="admin-card" key={item.id}><header><div><h3>{item.subject}</h3><p>{item.referenceId} · {item.fullName} · {item.email}</p></div><AdminStatusBadge value={item.status} /></header><p>{item.message}</p><div className="meta-row"><span>{titleLabel(item.category)}</span><span>{item.relatedPlan || "No plan"}</span><span>{formatDate(item.createdAt)}</span></div><div className="form-actions">{["open", "in_progress", "resolved", "closed"].map((status) => <button className="ghost-button" type="button" key={status} onClick={() => act(item.id, "mark_enquiry_" + status)}>Mark {titleLabel(status)}</button>)}<button className="ghost-button" type="button" onClick={() => act(item.id, "assign_enquiry")}>Assign to me</button><button className="ghost-button" type="button" onClick={() => { const note = window.prompt("Internal note"); if (note) act(item.id, "add_enquiry_note", { note }); }}>Add note</button></div></article>)}</div> : <AdminEmptyState title="No enquiries" text="No contact enquiries match these filters." />}</PermissionGate>;
+}
+
 function Footer() {
-  return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span><p className="developer-credit">Developed by <a href="mailto:darkdevil7325@gmail.com?subject=Delight%20Guidance%20Website%20Enquiry" title="Contact developer Arman" aria-label="Contact developer Arman">Arman</a></p></div></footer>;
+  return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href={`${appBase}contact`}>Contact form</a><YouTubeLink /><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span><p className="developer-credit">Developed by <a href="mailto:darkdevil7325@gmail.com?subject=Delight%20Guidance%20Website%20Enquiry" title="Contact developer Arman" aria-label="Contact developer Arman">Arman</a></p></div></footer>;
 }
 
 export default function App() {
@@ -1653,6 +1720,7 @@ export default function App() {
   if (path === "/admin/access-denied") return <AdminAccessDeniedPage />;
   if (path.startsWith("/admin")) return <AdminPage path={path.replace(/\/$/, "") || "/admin"} />;
   if (path.startsWith("/student-desk") || url.hash.includes("student-desk")) return <StudentContentDeskPage path={path.replace(/\/$/, "") || "/student-desk"} />;
+  if (path.endsWith("/contact")) return <ContactPage />;
   if (path.endsWith("/about")) return <AboutPage />;
   if (path.endsWith("/privacy-policy") || url.hash === "#privacy-policy") return <PrivacyPolicyPage />;
   return <HomePage />;

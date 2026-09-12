@@ -67,6 +67,7 @@ export function AuthModal({ mode, onClose, onUser }) {
             {authMode === "signup" ? "Already registered?" : "Create new account"}
           </button>
         </div>
+        <a className="text-button" href="/contact">Need help? Contact us</a>
         {message && <p className="form-message">{message}</p>}
       </section>
     </div>

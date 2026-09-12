@@ -4,6 +4,9 @@ export const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => 
   return typeof value === "string" && value.trim() && !value.includes("PASTE_");
 });
 let firebaseReady = null;
+let authHydrated = null;
+let authObserver = null;
+const authSubscribers = new Set();
 
 async function getFirebase() {
   if (!hasFirebaseConfig) return null;
@@ -15,17 +18,18 @@ async function getFirebase() {
     import("https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js"),
     import("https://www.gstatic.com/firebasejs/10.12.4/firebase-storage.js")
   ]).then(([appModule, authModule, firestoreModule, storageModule]) => {
-    const app = appModule.initializeApp(firebaseConfig);
-    return {
+    const app = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(firebaseConfig);
+    const auth = authModule.getAuth(app);
+    return authModule.setPersistence(auth, authModule.browserLocalPersistence).then(() => ({
       appModule,
       authModule,
       firestoreModule,
       storageModule,
       app,
-      auth: authModule.getAuth(app),
+      auth,
       db: firestoreModule.getFirestore(app),
       storage: storageModule.getStorage(app)
-    };
+    }));
   });
 
   return firebaseReady;
@@ -65,18 +69,38 @@ function removeLocalStudent(email) {
   if (changed) storage.set("db_students", students);
 }
 
-export async function listenToAuth(callback) {
-  const fb = await getFirebase();
-  if (!fb) {
-    const user = storage.get("db_user", null);
-    if (user) rememberStudent(user);
-    callback(user);
-    return () => {};
-  }
-  return fb.authModule.onAuthStateChanged(fb.auth, (user) => {
-    if (user) rememberStudent(user);
-    callback(user);
-  });
+export function listenToAuth(callback) {
+  let active = true;
+  authSubscribers.add(callback);
+  getFirebase().then((fb) => {
+    if (!active) return;
+    if (!fb) {
+      const user = storage.get("db_user", null);
+      if (user) rememberStudent(user);
+      callback(user);
+      return;
+    }
+    if (!authHydrated) {
+      authHydrated = new Promise((resolve) => {
+        authObserver = fb.authModule.onAuthStateChanged(fb.auth, (user) => {
+          if (user) rememberStudent(user);
+          authSubscribers.forEach((subscriber) => subscriber(user));
+          resolve(user);
+        });
+      });
+    } else {
+      authHydrated.then(() => { if (active) callback(fb.auth.currentUser); });
+    }
+  }).catch((error) => { if (active) console.error("Firebase auth restore failed", error); });
+  return () => {
+    active = false;
+    authSubscribers.delete(callback);
+    if (!authSubscribers.size && authObserver) {
+      authObserver();
+      authObserver = null;
+      authHydrated = null;
+    }
+  };
 }
 
 export async function signInWithGoogle(options = {}) {
@@ -392,7 +416,12 @@ export function saveUserProfile(email, profile) {
 
 export async function getAuthToken(forceRefresh = false) {
   const fb = await getFirebase();
-  if (!fb?.auth?.currentUser) throw new Error("Login required.");
+  if (authHydrated) await authHydrated;
+  if (!fb?.auth?.currentUser) {
+    const error = new Error("Login required.");
+    error.status = 401;
+    throw error;
+  }
   return fb.auth.currentUser.getIdToken(forceRefresh);
 }
 
@@ -889,3 +918,31 @@ async function syncStudentToFirestore(student) {
 
 
 
+
+export async function submitContactEnquiry(payload) {
+  let token = "";
+  try { token = await getAuthToken(false); } catch {}
+  const response = await fetch("/api/student-content", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    body: JSON.stringify({ action: "submit_contact", ...payload })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data.error || {};
+    const error = new Error(friendlyApiError(response.status, detail.code || data.code, detail.message || data.error, detail.requestId));
+    error.status = response.status;
+    error.code = detail.code || data.code;
+    throw error;
+  }
+  return data;
+}
+export async function getAdminEnquiries(params = {}) {
+  return apiFetch(adminApiPath("support", params), { forceRefresh: true });
+}
+export async function getAdminEnquiry(id) {
+  return apiFetch(adminApiPath("support", { enquiryId: id }), { forceRefresh: true });
+}
+export async function updateAdminEnquiry(id, action, payload = {}) {
+  return adminPost(action, { enquiryId: id, ...payload });
+}
