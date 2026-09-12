@@ -459,7 +459,7 @@ function HomePage() {
   const [user, setUser] = useState(null);
   const [paymentSummary, setPaymentSummary] = useState(null);
   const [catalogPlans, setCatalogPlans] = useState(plans);
-  useEffect(() => { listenToAuth(setUser); }, []);
+  useEffect(() => listenToAuth(setUser), []);
   useEffect(() => { if (user) getPaymentSummary().then(setPaymentSummary).catch(() => setPaymentSummary(null)); }, [user]);
   async function logout() { await signOutUser(); setUser(null); setPaymentSummary(null); }
   return (
@@ -489,7 +489,7 @@ function CheckoutPage({ variantId }) {
   const [accepted, setAccepted] = useState({ terms: false, refund: false, privacy: false });
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
-  useEffect(() => { listenToAuth((nextUser) => { setUser(nextUser); setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {}); if (!nextUser && !previewMode) setAuthMode("signin"); }); }, [previewMode]);
+  useEffect(() => listenToAuth((nextUser) => { setUser(nextUser); setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {}); if (!nextUser && !previewMode) setAuthMode("signin"); }), [previewMode]);
   useEffect(() => { getPublicPlans().then((result) => { setDynamicPlans(result?.plans || plans); setPlansLoaded(true); }).catch(() => { setDynamicPlans(plans); setPlansLoaded(true); }); }, []);
   if (!selected && !plansLoaded) return <Shell user={user} onAuth={setAuthMode}><section className="section"><div className="premium-card"><h1>Loading plan</h1><p>Preparing plan preview.</p></div></section></Shell>;
   if (!selected) return <Shell user={user} onAuth={setAuthMode}><section className="section"><div className="premium-card"><h1>Plan not found</h1><p>This plan variant is not available.</p><a className="primary-button" href={`${appBase}#plans`}>View Plans</a></div></section></Shell>;
@@ -549,7 +549,7 @@ function PaymentStatusPage({ orderId }) {
   const [pollCount, setPollCount] = useState(0);
   const maxPolls = 6;
 
-  useEffect(() => { listenToAuth((nextUser) => { setUser(nextUser); setAuthReady(true); if (!nextUser) setAuthMode("signin"); }); }, []);
+  useEffect(() => listenToAuth((nextUser) => { setUser(nextUser); setAuthReady(true); if (!nextUser) setAuthMode("signin"); }), []);
 
   async function refreshStatus({ manual = false } = {}) {
     if (!orderId || !user || checking) return;
@@ -602,7 +602,7 @@ function StudentDeskPage() {
   const [catalogPlans, setCatalogPlans] = useState(plans);
   const [deskView, setDeskView] = useState(() => window.location.hash === "#profile" ? "profile" : "dashboard");
   const [tracking, setTracking] = useState(getStudyTracking(""));
-  useEffect(() => { listenToAuth((nextUser) => { setUser(nextUser); setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {}); setTracking(nextUser?.email ? getStudyTracking(nextUser.email) : getStudyTracking("")); setAuthReady(true); }); getResources().then(setResources); getPublicPlans().then((result) => { if (result?.plans?.length) setCatalogPlans(result.plans); }).catch(() => setCatalogPlans(plans)); }, []);
+  useEffect(() => { const unsubscribe = listenToAuth((nextUser) => { setUser(nextUser); setProfile(nextUser?.email ? getUserProfile(nextUser.email) : {}); setTracking(nextUser?.email ? getStudyTracking(nextUser.email) : getStudyTracking("")); setAuthReady(true); }); getResources().then(setResources); getPublicPlans().then((result) => { if (result?.plans?.length) setCatalogPlans(result.plans); }).catch(() => setCatalogPlans(plans)); return unsubscribe; }, []);
   useEffect(() => { const syncHashView = () => { if (window.location.hash === '#profile') setDeskView('profile'); }; syncHashView(); window.addEventListener('hashchange', syncHashView); return () => window.removeEventListener('hashchange', syncHashView); }, []);
   useEffect(() => { if (user) refreshPayments(); }, [user]);
   async function refreshPayments() { setPaymentSummary(await getPaymentSummary()); }
@@ -726,13 +726,13 @@ function StudentClassCards({ classes = [] }) {
 function AboutPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
-  useEffect(() => { listenToAuth(setUser); }, []);
+  useEffect(() => listenToAuth(setUser), []);
   return <Shell user={user} onAuth={setAuthMode}><main className="about-page"><section className="section about-hero"><div className="about-copy"><p className="eyebrow">Meet Your Mentor</p><h1 className="page-title">Imran Sir</h1><p className="mentor-role">Banking Examination Mentor</p><p>Imran Sir guides banking and insurance examination aspirants through structured preparation targets, practical strategies, mock-test analysis and plan-specific mentorship.</p><div className="hero-actions"><a className="primary-button" href={`${appBase}#plans`}>View Mentorship Plans</a><YouTubeLink className="ghost-button social-link" /></div></div><div className="about-photo-wrap"><img src={mentorPhotoPath} width="1280" height="1024" loading="eager" alt="Imran Sir, banking examination mentor at Delight Banking" /></div></section><section className="section about-detail-grid"><article className="premium-card"><h2>Mentor Introduction</h2><p>Students learn through a practical mentorship style focused on preparation discipline, exam-specific planning and regular performance review.</p></article><article className="premium-card"><h2>Teaching Approach</h2><p>The guidance emphasizes clear targets, consistent revision, doubt resolution and honest analysis of weak areas.</p></article><article className="premium-card"><h2>Banking-Exam Preparation Strategy</h2><p>Preparation is organized around prelims speed, mains depth, current affairs retention and exam-day decision making.</p></article><article className="premium-card"><h2>Target-Based Mentorship</h2><p>Daily and weekly targets help aspirants keep their study routine measurable and easier to correct when progress slows.</p></article><article className="premium-card"><h2>Mock-Analysis Approach</h2><p>Mock tests are reviewed for accuracy, time allocation, skipped questions, repeated mistakes and next-step correction targets.</p></article><article className="premium-card"><h2>Delight Banking Mission</h2><p>Delight Banking exists to give banking and insurance aspirants structured guidance, useful resources and plan-based mentorship without result guarantees.</p></article></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 function PrivacyPolicyPage() {
   const [authMode, setAuthMode] = useState(null);
   const [user, setUser] = useState(null);
-  useEffect(() => { listenToAuth(setUser); }, []);
+  useEffect(() => listenToAuth(setUser), []);
   return <Shell user={user} onAuth={setAuthMode}><main className="policy-page"><section className="section"><div className="section-heading"><p className="eyebrow">Privacy Policy</p><h1 className="page-title">Your data and access</h1><p>Delight Banking uses login information to manage student access, resources, and one-time mentorship subscriptions.</p></div><div className="policy-content"><article className="premium-card"><h3>Payments</h3><p>Payments are for educational mentorship and guidance services. Card, UPI and banking credentials are handled inside the secure checkout and are not stored by Delight Banking.</p></article><article className="premium-card"><h3>Access</h3><p>Access duration begins after verified payment activation. Monthly plans are one-time payments and do not renew automatically.</p></article><article className="premium-card"><h3>Results</h3><p>Examination selection, results or employment are not guaranteed.</p></article><article className="premium-card"><h3>Refund Policy</h3><p>Refund policy details must be completed and reviewed before production payments are enabled.</p></article></div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 
@@ -870,12 +870,11 @@ function AdminRouteGuard({ path, children }) {
       }
     }
 
-    listenToAuth(authorize).then((unsubscribe) => {
-      unsubscribeAuth = unsubscribe;
-      if (cancelled && typeof unsubscribeAuth === "function") unsubscribeAuth();
-    }).catch((error) => {
+    try {
+      unsubscribeAuth = listenToAuth(authorize);
+    } catch (error) {
       if (!cancelled) setState({ status: "error", admin: null, error: error.message || "Unable to restore Firebase session." });
-    });
+    }
 
     return () => {
       cancelled = true;
@@ -906,7 +905,7 @@ function AdminLoginPage() {
   useEffect(() => {
     let cancelled = false;
     let unsubscribeAuth = null;
-    listenToAuth(async (currentUser) => {
+    const unsubscribe = listenToAuth(async (currentUser) => {
       if (cancelled) return;
       if (!currentUser) {
         setCheckingSession(false);
@@ -924,10 +923,8 @@ function AdminLoginPage() {
           setMessage("This account does not have administrative access.");
         }
       }
-    }).then((unsubscribe) => {
-      unsubscribeAuth = unsubscribe;
-      if (cancelled && typeof unsubscribeAuth === "function") unsubscribeAuth();
     });
+    unsubscribeAuth = unsubscribe;
     return () => {
       cancelled = true;
       if (typeof unsubscribeAuth === "function") unsubscribeAuth();
