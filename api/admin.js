@@ -68,6 +68,7 @@ import {
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 import { createTestNotification, exportAdminNotifications, getAdminNotification, listAdminNotifications, retryDelivery } from "../server/_lib/notifications.js";
 import { getContactEnquiry, listContactEnquiries, sendContactEnquiryReply, updateContactEnquiry } from "../server/_lib/support.js";
+import { manageTelegramWebhook } from "../server/_lib/telegram.js";
 
 const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes", "support", "notifications"]);
 const ACTIONS = new Set([
@@ -133,6 +134,8 @@ const ACTIONS = new Set([
   "mark_enquiry_closed",
   "retry_delivery",
   "send_enquiry_reply",
+  "register_telegram_webhook",
+  "check_telegram_webhook",
   "reopen_enquiry"
 ]);
 
@@ -322,6 +325,8 @@ async function handlePost(req, res) {
   if (action === "create_test_notification") return sendJson(res, 201, await createTestNotification(admin, body));
   if (action === "retry_delivery") return sendJson(res, 200, await retryDelivery(admin, cleanText(body.notificationId, 240), cleanText(body.channel, 40)));
   if (action === "send_enquiry_reply") return sendJson(res, 200, await sendContactEnquiryReply(admin, cleanText(body.enquiryId, 240), body));
+  if (action === "register_telegram_webhook") return sendJson(res, 200, await manageTelegramWebhook(admin, "register"));
+  if (action === "check_telegram_webhook") return sendJson(res, 200, await manageTelegramWebhook(admin, "check"));
   if (["assign_enquiry", "add_enquiry_note", "mark_enquiry_open", "mark_enquiry_in_progress", "mark_enquiry_resolved", "mark_enquiry_closed", "reopen_enquiry"].includes(action)) {
     const supportAction = action.replace(/_enquiry/, "").replace("assign", "assign").replace("add_note", "add_note");
     return sendJson(res, 200, await updateContactEnquiry(admin, cleanText(body.enquiryId, 240), { ...body, action: supportAction }));

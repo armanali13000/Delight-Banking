@@ -951,6 +951,9 @@ export async function markStudentNotification(notificationId) { return studentCo
 export async function markAllStudentNotifications() { return studentContentPost("mark_all_notifications"); }
 export async function getNotificationPreferences() { return apiFetch(studentContentPath("notification_preferences"), { forceRefresh: false }); }
 export async function saveNotificationPreferences(payload) { return studentContentPost("save_notification_preferences", payload); }
+export async function connectTelegramNotifications() { return studentContentPost("connect_telegram"); }
+export async function disconnectTelegramNotifications() { return studentContentPost("disconnect_telegram"); }
+export async function manageAdminTelegramWebhook(action) { return adminPost(action === "register" ? "register_telegram_webhook" : "check_telegram_webhook"); }
 export async function getAdminNotifications(params = {}) { return apiFetch(adminApiPath("notifications", params), { forceRefresh: true }); }
 export async function getAdminNotification(id) { return apiFetch(adminApiPath("notifications", { notificationId: id }), { forceRefresh: true }); }
 export async function retryAdminNotification(id, channel) { return adminPost("retry_delivery", { notificationId: id, channel }); }

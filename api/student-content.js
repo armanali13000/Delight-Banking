@@ -14,9 +14,11 @@ import { listEffectivePlans } from "../server/_lib/planManagement.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 import { submitContactEnquiry } from "../server/_lib/support.js";
 import { getPreferences, listUserNotifications, markNotifications, savePreferences } from "../server/_lib/notifications.js";
+import { requireUser } from "../server/_lib/firebaseAdmin.js";
+import { createTelegramConnectionLink, disconnectTelegram, handleTelegramWebhook, telegramConnectionStatus } from "../server/_lib/telegram.js";
 
-const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans", "notifications", "notification_preferences"]);
-const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class", "submit_contact", "mark_notification", "mark_all_notifications", "save_notification_preferences"]);
+const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans", "notifications", "notification_preferences", "telegram_webhook"]);
+const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class", "submit_contact", "mark_notification", "mark_all_notifications", "save_notification_preferences", "connect_telegram", "disconnect_telegram"]);
 
 function cleanText(value, max = 240) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
@@ -62,6 +64,8 @@ async function handlePost(req, res) {
   if (action === "mark_notification") return sendJson(res, 200, await markNotifications(req, body));
   if (action === "mark_all_notifications") return sendJson(res, 200, await markNotifications(req, { all: true }));
   if (action === "save_notification_preferences") return sendJson(res, 200, await savePreferences(req, body));
+  if (action === "connect_telegram") { const user = await requireUser(req); return sendJson(res, 200, { connection: await telegramConnectionStatus(user.uid), link: await createTelegramConnectionLink(user) }); }
+  if (action === "disconnect_telegram") { const user = await requireUser(req); return sendJson(res, 200, await disconnectTelegram(user)); }
   if (action === "submit_contact") return sendJson(res, 201, await submitContactEnquiry(req, body));
   if (action === "request_file_access") return sendJson(res, 200, await requestFileAccess(req, body));
   if (action === "record_download") return sendJson(res, 200, await requestFileAccess(req, { ...body, download: true }));
@@ -74,6 +78,7 @@ async function handlePost(req, res) {
 export default async function handler(req, res) {
   try {
     const resource = queryResource(req);
+    if (resource === "telegram_webhook") return sendJson(res, 200, await handleTelegramWebhook(req));
     if (req.method === "GET") return await handleGet(req, res, resource);
     if (req.method === "POST") return await handlePost(req, res);
     if (!method(req, res, ["GET", "POST"])) return;

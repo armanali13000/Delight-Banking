@@ -7,6 +7,7 @@ import { getCheckoutVariant, planSnapshot } from "./planManagement.js";
 import { normalizeOrder as normalizeAdminOrder, normalizeSubscription as normalizeAdminSubscription, normalizeTransaction as normalizeAdminTransaction, normalizeUser as normalizeAdminUser } from "./adminNormalizers.js";
 import { addCalendarMonths, syncOrderWithCashfree } from "./payments.js";
 import { readJson } from "./http.js";
+import { telegramConnectionStatus } from "./telegram.js";
 
 const MAX_READ = 750;
 const MAX_EXPORT = 1000;
@@ -233,7 +234,7 @@ export async function getUserDetail(admin, uid) {
   const authUser = await auth.getUser(uid).catch(() => null);
   if (!authUser) throw httpError("User was not found.", 404);
   const db = getDb();
-  const [studentSnap, subsUserSnap, subsUidSnap, ordersUserSnap, ordersUidSnap, paymentsUserSnap, paymentsUidSnap, logs, notesSnap] = await Promise.all([
+  const [studentSnap, subsUserSnap, subsUidSnap, ordersUserSnap, ordersUidSnap, paymentsUserSnap, paymentsUidSnap, logs, notesSnap, telegramConnection] = await Promise.all([
     db.collection("students").doc(uid).get(),
     db.collection("subscriptions").where("userId", "==", uid).limit(100).get(),
     db.collection("subscriptions").where("uid", "==", uid).limit(100).get().catch(() => ({ docs: [] })),
@@ -242,7 +243,8 @@ export async function getUserDetail(admin, uid) {
     db.collection("payments").where("userId", "==", uid).limit(100).get(),
     db.collection("payments").where("uid", "==", uid).limit(100).get().catch(() => ({ docs: [] })),
     getActivity("user", uid),
-    db.collection("adminNotes").where("entityType", "==", "user").where("entityId", "==", uid).limit(50).get().catch(() => ({ docs: [] }))
+    db.collection("adminNotes").where("entityType", "==", "user").where("entityId", "==", uid).limit(50).get().catch(() => ({ docs: [] })),
+    telegramConnectionStatus(uid)
   ]);
   const subDocs = uniqueDocs([...subsUserSnap.docs, ...subsUidSnap.docs]);
   const orderDocs = uniqueDocs([...ordersUserSnap.docs, ...ordersUidSnap.docs]);
@@ -257,6 +259,7 @@ export async function getUserDetail(admin, uid) {
     user: mergeUser(authUser, studentSnap.exists ? studentSnap.data() : {}, subscriptions),
     profile: studentSnap.exists ? studentSnap.data() : {},
     profileStatus: studentSnap.exists ? "complete" : "incomplete",
+    telegramConnection,
     subscriptions,
     orders: orderDocs.map((doc) => serializeOrder(doc.id, doc.data())),
     transactions: paymentDocs.map((doc) => serializePayment(doc.id, doc.data(), { subscription: findSubscriptionForPayment(rawDoc(doc), subDocs.map(rawDoc)) })),

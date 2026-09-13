@@ -80,6 +80,15 @@ service cloud.firestore {
     match /notificationDeliveries/{deliveryId} {
       allow read, write: if false;
     }
+    match /telegramConnections/{documentId} {
+      allow read, write: if false;
+    }
+    match /telegramChatLinks/{documentId} {
+      allow read, write: if false;
+    }
+    match /telegramConnectionTokens/{documentId} {
+      allow read, write: if false;
+    }
     match /adminUsers/{adminUid} {
       allow read, write: if false;
     }
