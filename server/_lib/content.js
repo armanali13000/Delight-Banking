@@ -362,7 +362,7 @@ async function setStatus({ admin, collection, id, label, permission, statuses, s
   await doc.ref.set(payload, { merge: true });
   await logContentAction(admin, `${label}.${status === "draft" ? "restore" : status}`, label, doc.id, data, previousStatus, status, reason);
   const saved = await doc.ref.get();
-  if (previousStatus !== status && (status === "published" || (label === "class" && status === "upcoming"))) await emitContentAssignmentNotifications(label, doc.id, { ...data, status });
+  if (previousStatus !== status && (status === "published" || (label === "class" && status === "upcoming"))) await emitContentAssignmentNotifications(label, doc.id, { ...data, status }).catch(() => {});
   return { [label === "class" ? "classSession" : label]: sanitizer(saved.id, saved.data(), { includePrivate: true }) };
 }
 
@@ -429,7 +429,7 @@ export async function saveAdminResource(admin, body = {}) {
   const ref = existing?.exists ? existing.ref : db.collection("resources").doc();
   await ref.set({ ...payload, ...(existing?.exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid, analytics: { views: 0, downloads: 0 } }), ...(status === "published" && !existingData.publishedAt ? { publishedAt: serverTimestamp() } : {}) }, { merge: true });
   const saved = await ref.get();
-  if (status === "published" && existingData.status !== "published") await emitContentAssignmentNotifications("resource", ref.id, payload);
+  if (status === "published" && existingData.status !== "published") await emitContentAssignmentNotifications("resource", ref.id, payload).catch(() => {});
   await logContentAction(admin, existing?.exists ? "resource.update" : "resource.create", "resource", ref.id, payload, existingData.status, status, cleanText(body.reason));
   return { resource: sanitizeResource(saved.id, saved.data(), { includePrivate: true }) };
 }
@@ -505,7 +505,7 @@ export async function saveAdminTarget(admin, body = {}) {
   if (status === "published") validateTargetForPublish(payload);
   await ref.set({ ...payload, ...(existing?.exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid }) }, { merge: true });
   const saved = await ref.get();
-  if (status === "published" && existingData.status !== "published") await emitContentAssignmentNotifications("target", ref.id, payload);
+  if (status === "published" && existingData.status !== "published") await emitContentAssignmentNotifications("target", ref.id, payload).catch(() => {});
   await logContentAction(admin, existing?.exists ? "target.update" : "target.create", "target", ref.id, payload, existingData.status, status, cleanText(body.reason));
   return { target: sanitizeTarget(saved.id, saved.data(), { includePrivate: true }) };
 }
@@ -556,7 +556,7 @@ export async function saveAdminClass(admin, body = {}) {
   if (["published", "upcoming", "live", "recorded"].includes(status)) validateClassForPublish(payload);
   await ref.set({ ...payload, ...(existing?.exists ? {} : { createdAt: serverTimestamp(), createdBy: admin.uid }) }, { merge: true });
   const saved = await ref.get();
-  if (["published", "upcoming"].includes(status) && !["published", "upcoming"].includes(existingData.status)) await emitContentAssignmentNotifications("class", ref.id, payload);
+  if (["published", "upcoming"].includes(status) && !["published", "upcoming"].includes(existingData.status)) await emitContentAssignmentNotifications("class", ref.id, payload).catch(() => {});
   await logContentAction(admin, existing?.exists ? "class.update" : "class.create", "class", ref.id, payload, existingData.status, status, cleanText(body.reason));
   return { classSession: sanitizeClass(saved.id, saved.data(), { includePrivate: true }) };
 }
