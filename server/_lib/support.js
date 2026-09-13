@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import { getAuth } from "firebase-admin/auth";
 import { getAdminApp, getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { hasPermission, writeAdminActivityLog } from "./adminAuth.js";
+import { createNotification } from "./notifications.js";
 
 const CATEGORIES = new Set(["plan_enquiry", "payment_help", "subscription_help", "resource_access", "targets", "classes", "refund_question", "technical_problem", "general_enquiry", "other"]);
-const STATUSES = new Set(["open", "in_progress", "resolved", "closed"]);
+const STATUSES = new Set(["open", "pending", "in_progress", "resolved", "closed"]);
 const attempts = new Map();
 
 function fail(statusCode, message, code = "SUPPORT_ERROR") {
@@ -19,7 +20,7 @@ function iso(value) { return value?.toDate ? value.toDate().toISOString() : valu
 function requestIp(req) { return text(String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0], 80); }
 function referenceId() { return "DB-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + crypto.randomBytes(3).toString("hex").toUpperCase(); }
 function safe(item) {
-  return { id: item.id, referenceId: item.referenceId, fullName: item.fullName, email: item.email, mobile: item.mobile || "", category: item.category, relatedPlan: item.relatedPlan || "", subject: item.subject, message: item.message, status: item.status, assignedTo: item.assignedTo || "", assignedToEmail: item.assignedToEmail || "", internalNotes: item.internalNotes || [], verifiedUserUid: item.verifiedUserUid || "", verifiedUserEmail: item.verifiedUserEmail || "", createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt), resolvedAt: iso(item.resolvedAt), closedAt: iso(item.closedAt) };
+  return { id: item.id, referenceId: item.referenceId, fullName: item.fullName, email: item.email, mobile: item.mobile || "", category: item.category, relatedPlan: item.relatedPlan || "", subject: item.subject, message: item.message, status: item.status, assignedTo: item.assignedTo || "", assignedToEmail: item.assignedToEmail || "", internalNotes: item.internalNotes || [], conversation: item.conversation || [], verifiedUserUid: item.verifiedUserUid || "", verifiedUserEmail: item.verifiedUserEmail || "", createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt), resolvedAt: iso(item.resolvedAt), closedAt: iso(item.closedAt) };
 }
 async function optionalUser(req) {
   const match = String(req.headers.authorization || "").match(/^Bearer (.+)$/);
@@ -108,4 +109,25 @@ export async function updateContactEnquiry(admin, id, body = {}) {
   const next = safe({ id: saved.id, ...saved.data() });
   await writeAdminActivityLog({ admin, action: "support.enquiry." + action, entityType: "contactEnquiry", entityId: id, safeMetadata: { referenceId: previous.referenceId, previousState: previous, newState: next } });
   return { enquiry: next };
+}
+
+export async function sendContactEnquiryReply(admin, id, body = {}) {
+  if (!hasPermission(admin, "support.manage")) fail(403, "Permission denied.", "PERMISSION_DENIED");
+  const enquiryId = text(id, 240), replyId = text(body.replyId, 120), replyText = text(body.reply, 5000);
+  if (!replyId) fail(400, "A reply id is required.", "INVALID_REPLY_ID");
+  if (replyText.length < 2) fail(400, "Enter a reply.", "INVALID_REPLY");
+  const ref = getDb().collection("contactEnquiries").doc(enquiryId), snap = await ref.get();
+  if (!snap.exists) fail(404, "Enquiry not found.", "ENQUIRY_NOT_FOUND");
+  const enquiry = safe({ id: snap.id, ...snap.data() }), recipient = email(enquiry.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) fail(400, "The stored enquiry email is invalid.", "INVALID_EMAIL");
+  const existing = enquiry.conversation.find((reply) => reply.replyId === replyId);
+  if (existing) return { enquiry, reply: existing };
+  const notificationId = await createNotification({ eventType: "admin_support_reply", uid: enquiry.verifiedUserUid || "support-" + enquiryId, email: recipient, title: "Support reply " + enquiry.referenceId, message: "The Delight Banking support team replied to your enquiry.", destination: "/student-desk/notifications", idempotencyKey: "support-reply:" + enquiryId + ":" + replyId, related: { enquiryId, referenceId: enquiry.referenceId }, templateData: { studentName: enquiry.fullName, referenceId: enquiry.referenceId, replyText } });
+  const deliveries = await getDb().collection("notificationDeliveries").where("notificationId", "==", notificationId).limit(20).get();
+  const deliveryDoc = deliveries.docs.find((doc) => doc.data().channel === "email"), delivery = deliveryDoc?.data() || {};
+  const reply = { replyId, direction: "outbound", message: replyText, adminUid: admin.uid, adminDisplayName: text(admin.displayName || admin.email, 120), createdAt: new Date().toISOString(), notificationId, deliveryId: deliveryDoc?.id || "", providerMessageId: text(delivery.providerMessageId, 240), deliveryStatus: text(delivery.status, 50) || "failed", safeFailureCode: text(delivery.safeFailureCode, 100), safeFailureMessage: text(delivery.safeFailureMessage, 500) };
+  await getDb().runTransaction(async (tx) => { const current = await tx.get(ref), conversation = current.data()?.conversation || []; if (conversation.some((item) => item.replyId === replyId)) return; tx.set(ref, { conversation: [...conversation, reply].slice(-100), status: "pending", updatedAt: serverTimestamp(), updatedBy: admin.uid }, { merge: true }); });
+  await writeAdminActivityLog({ admin, action: "support.enquiry.reply", entityType: "contactEnquiry", entityId: enquiryId, safeMetadata: { referenceId: enquiry.referenceId, notificationId, deliveryId: reply.deliveryId, status: reply.deliveryStatus } });
+  const saved = await ref.get();
+  return { enquiry: safe({ id: saved.id, ...saved.data() }), reply };
 }

@@ -946,3 +946,37 @@ export async function getAdminEnquiry(id) {
 export async function updateAdminEnquiry(id, action, payload = {}) {
   return adminPost(action, { enquiryId: id, ...payload });
 }
+export async function getStudentNotifications(params = {}) { return apiFetch(studentContentPath("notifications", params), { forceRefresh: false }); }
+export async function markStudentNotification(notificationId) { return studentContentPost("mark_notification", { notificationId }); }
+export async function markAllStudentNotifications() { return studentContentPost("mark_all_notifications"); }
+export async function getNotificationPreferences() { return apiFetch(studentContentPath("notification_preferences"), { forceRefresh: false }); }
+export async function saveNotificationPreferences(payload) { return studentContentPost("save_notification_preferences", payload); }
+export async function getAdminNotifications(params = {}) { return apiFetch(adminApiPath("notifications", params), { forceRefresh: true }); }
+export async function getAdminNotification(id) { return apiFetch(adminApiPath("notifications", { notificationId: id }), { forceRefresh: true }); }
+export async function retryAdminNotification(id, channel) { return adminPost("retry_delivery", { notificationId: id, channel }); }
+export async function exportAdminNotificationsCsv(params = {}) {
+  const token = await getAuthToken(true);
+  let response;
+  try {
+    response = await fetch(adminApiPath("notifications", { ...params, export: "csv" }), {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (cause) {
+    const error = new Error("Network error. Please try again.");
+    error.cause = cause;
+    throw error;
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    let detail = {};
+    try { detail = text ? JSON.parse(text) : {}; } catch { detail = {}; }
+    const apiError = typeof detail.error === "object" && detail.error ? detail.error : { message: detail.error };
+    const error = new Error(friendlyApiError(response.status, apiError.code, apiError.message, apiError.requestId));
+    error.status = response.status;
+    throw error;
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename\*?=(?:UTF-8''|["']?)([^"';]+)/i);
+  const fallback = `delight-notifications-${new Date().toISOString().slice(0, 10)}.csv`;
+  return { blob: await response.blob(), filename: match ? decodeURIComponent(match[1].trim()) : fallback };
+}

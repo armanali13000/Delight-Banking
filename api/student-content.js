@@ -13,9 +13,10 @@ import {
 import { listEffectivePlans } from "../server/_lib/planManagement.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
 import { submitContactEnquiry } from "../server/_lib/support.js";
+import { getPreferences, listUserNotifications, markNotifications, savePreferences } from "../server/_lib/notifications.js";
 
-const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans"]);
-const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class", "submit_contact"]);
+const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans", "notifications", "notification_preferences"]);
+const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class", "submit_contact", "mark_notification", "mark_all_notifications", "save_notification_preferences"]);
 
 function cleanText(value, max = 240) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
@@ -38,6 +39,8 @@ function queryId(req, name = "id") {
 }
 
 async function handleGet(req, res, resource) {
+  if (resource === "notifications") return sendJson(res, 200, await listUserNotifications(req, req.query || {}));
+  if (resource === "notification_preferences") return sendJson(res, 200, await getPreferences(req));
   if (resource === "plans") return sendJson(res, 200, { plans: await listEffectivePlans({ publicOnly: true }) });
   if (resource === "dashboard") return sendJson(res, 200, await getStudentContentDashboard(req));
   if (resource === "resources") {
@@ -56,6 +59,9 @@ async function handlePost(req, res) {
   const body = await readJson(req);
   const action = cleanText(body.action, 80);
   if (!ACTIONS.has(action)) badRequest("Invalid student content action.");
+  if (action === "mark_notification") return sendJson(res, 200, await markNotifications(req, body));
+  if (action === "mark_all_notifications") return sendJson(res, 200, await markNotifications(req, { all: true }));
+  if (action === "save_notification_preferences") return sendJson(res, 200, await savePreferences(req, body));
   if (action === "submit_contact") return sendJson(res, 201, await submitContactEnquiry(req, body));
   if (action === "request_file_access") return sendJson(res, 200, await requestFileAccess(req, body));
   if (action === "record_download") return sendJson(res, 200, await requestFileAccess(req, { ...body, download: true }));

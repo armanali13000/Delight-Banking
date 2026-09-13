@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { emitPaymentNotifications } from "./notifications.js";
 import { getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { getCheckoutVariant, planSnapshot } from "./planManagement.js";
 import {
@@ -462,7 +463,9 @@ export async function syncOrderWithCashfree(orderRef, source = "status_check") {
   }
 
   const fresh = await orderRef.get();
-  return normalizedResult(orderRef, fresh.data(), activation);
+  const result = normalizedResult(orderRef, fresh.data(), activation);
+  await emitPaymentNotifications(result).catch((error) => console.error("Notification outbox write failed", { orderId: orderRef.id, code: error.code || "NOTIFICATION_ERROR" }));
+  return result;
 }
 
 export async function verifyAndRecordPayment(user, payload) {

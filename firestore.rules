@@ -1,4 +1,4 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
@@ -67,6 +67,17 @@ service cloud.firestore {
     }
 
     match /webhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.recipientUid == request.auth.uid;
+      allow write: if false;
+    }
+    match /notificationPreferences/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+    match /notificationDeliveries/{deliveryId} {
       allow read, write: if false;
     }
     match /adminUsers/{adminUid} {

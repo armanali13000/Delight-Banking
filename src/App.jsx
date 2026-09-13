@@ -87,6 +87,15 @@ import {
   setAdminTargetStatus,
   updateStudentTargetProgress,
   uploadProtectedResourceFile,
+  getStudentNotifications,
+  markStudentNotification,
+  markAllStudentNotifications,
+  getNotificationPreferences,
+  saveNotificationPreferences,
+  getAdminNotifications,
+  getAdminNotification,
+  retryAdminNotification,
+  exportAdminNotificationsCsv,
   submitContactEnquiry,
   getAdminEnquiries,
   updateAdminEnquiry
@@ -313,6 +322,12 @@ function YouTubeLink({ className = "social-link" }) {
   return <a className={className} href={link.url} target="_blank" rel="noopener noreferrer" aria-label={link.accessibleLabel}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 7.2a2.8 2.8 0 0 0-2-2C17.8 4.7 12 4.7 12 4.7s-5.8 0-7.6.5a2.8 2.8 0 0 0-2 2A29 29 0 0 0 2 12a29 29 0 0 0 .4 4.8 2.8 2.8 0 0 0 2 2c1.8.5 7.6.5 7.6.5s5.8 0 7.6-.5a2.8 2.8 0 0 0 2-2A29 29 0 0 0 22 12a29 29 0 0 0-.4-4.8ZM10 15.2V8.8l5.5 3.2-5.5 3.2Z" /></svg><span>YouTube</span></a>;
 }
 
+function NotificationBell({ user }) {
+ const [open,setOpen]=useState(false),[data,setData]=useState({items:[],unreadCount:0}),[error,setError]=useState(""); const box=useRef(null);
+ async function load(){try{setError("");const r=await getStudentNotifications({limit:8});setData(r.notifications)}catch(e){setError(e.message)}}
+ useEffect(()=>{if(user)load()},[user?.uid]); useEffect(()=>{const close=e=>{if(e.key==="Escape"||box.current&&!box.current.contains(e.target))setOpen(false)};document.addEventListener("keydown",close);document.addEventListener("mousedown",close);return()=>{document.removeEventListener("keydown",close);document.removeEventListener("mousedown",close)}},[]);
+ if(!user)return null;return <div className="notification-bell" ref={box}><button className="icon-button" aria-label="Open notifications" onClick={()=>{setOpen(!open);if(!open)load()}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>{data.unreadCount>0&&<span>{data.unreadCount>99?"99+":data.unreadCount}</span>}</button>{open&&<section className="notification-panel"><header><h3>Notifications</h3><button onClick={async()=>{await markAllStudentNotifications();load()}}>Mark all read</button></header>{error?<p>{error}<button onClick={load}>Retry</button></p>:data.items.length?data.items.map(n=><article className={n.readAt?"":"unread"} key={n.id}><strong>{n.title}</strong><p>{n.message}</p><button onClick={async()=>{await markStudentNotification(n.id);routeTo(n.destination.startsWith("/")&&!n.destination.startsWith("//")?n.destination:"/student-desk")}}>Open</button></article>):<p>No notifications yet.</p>}<a href={appBase+"student-desk/notifications"}>View all</a></section>}</div>
+}
 function Header({ user, onAuth, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("db_theme") || "light");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -394,6 +409,7 @@ function Header({ user, onAuth, onLogout }) {
       </nav>
       <div className="header-actions">
         <button className="icon-button theme-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>{theme === "dark" ? <SunIcon /> : <MoonIcon />}</button>
+        <NotificationBell user={user} />
         {user ? (
           <div className="profile-menu" ref={profileRef}>
             <button className={`profile-button ${savedProfile.photo ? "has-photo" : ""}`} type="button" onClick={() => setProfileOpen(!profileOpen)} aria-expanded={profileOpen} aria-label="Open profile menu">
@@ -666,7 +682,7 @@ function StudentContentDeskPage({ path }) {
   const [loadState, setLoadState] = useState("loading");
   const resourceMatch = path.match(/^\/student-desk\/resources\/([^/]+)$/);
   const targetMatch = path.match(/^\/student-desk\/targets\/([^/]+)$/);
-  const view = resourceMatch ? "resource" : targetMatch ? "target" : path.includes("/resources") ? "resources" : path.includes("/classes") ? "classes" : path.includes("/targets") ? "targets" : "dashboard";
+  const view = resourceMatch ? "resource" : targetMatch ? "target" : path.includes("/resources") ? "resources" : path.includes("/classes") ? "classes" : path.includes("/notification-settings") ? "notification-settings" : path.includes("/notifications") ? "notifications" : path.includes("/targets") ? "targets" : "dashboard";
   useEffect(() => listenToAuth((nextUser) => { setUser(nextUser); setAuthReady(true); }), []);
   async function loadContent() {
     setLoadState("loading");
@@ -691,9 +707,22 @@ function StudentContentDeskPage({ path }) {
   const classes = data?.classes?.items || data?.classes || [];
   const resource = data?.resource;
   const target = data?.target;
-  return <Shell user={user} onAuth={setAuthMode} onLogout={logout}><main className="desk-page"><section className="student-dashboard-shell" id="student-desk"><aside className="student-sidebar"><div className="sidebar-profile"><div className="profile-logo">{(user.displayName || user.email || "S").slice(0, 1).toUpperCase()}</div><h3>{user.displayName || "Student"}</h3><p>{user.email}</p></div><nav className="dashboard-menu"><a className={view === "dashboard" ? "active" : ""} href={`${appBase}student-desk`}>Dashboard</a><a className={view === "resources" || view === "resource" ? "active" : ""} href={`${appBase}student-desk/resources`}>Resources</a><a className={view === "classes" ? "active" : ""} href={`${appBase}student-desk/classes`}>Classes</a><a className={view === "targets" || view === "target" ? "active" : ""} href={`${appBase}student-desk/targets`}>Targets</a></nav><a className="menu-link" href={`${appBase}contact`}>Contact support</a><div className="subscription-box"><span className="menu-label">Active access</span>{data?.access?.active ? data.access.planIds.map((planId) => <span className="status-pill" key={planId}>{planId}</span>) : <p>No active content access found.</p>}</div></aside><div className="student-dashboard-main"><div className="dashboard-topbar"><div><p className="eyebrow">Student Desk</p><h1 className="page-title">{view === "resource" ? resource?.title || "Resource" : view === "target" ? target?.title || "Target" : titleLabel(view)}</h1></div><button className="ghost-button" type="button" onClick={loadContent}>Refresh</button></div>{loadState === "loading" ? <article className="admin-empty-state"><h3>Loading student content</h3><p>Please wait while your plan and assignments are checked.</p></article> : loadState === "error" ? <AdminEmptyState title="Server request failed" text={message} onRetry={loadContent} /> : <>{view === "dashboard" && <div className="dashboard-view"><div className="desk-stats"><article className="stat-card"><span>Resources</span><strong>{resources.length}</strong></article><article className="stat-card"><span>Targets</span><strong>{targets.length}</strong></article><article className="stat-card"><span>Classes</span><strong>{classes.length}</strong></article></div><StudentResourceCards resources={resources} /><StudentTargetCards targets={targets} access={data?.access} /><StudentClassCards classes={classes} /></div>}{view === "resources" && <StudentResourceCards resources={resources} />}{view === "classes" && <StudentClassCards classes={classes} />}{view === "targets" && <StudentTargetCards targets={targets} access={data?.access} />}{view === "resource" && resource && <StudentResourceDetail resource={resource} />}{view === "target" && target && <StudentTargetDetail target={target} progress={data.progress} onSave={async (completedTaskIds) => { await updateStudentTargetProgress(target.id, { completedTaskIds }); await loadContent(); }} />}</>}</div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
+  return <Shell user={user} onAuth={setAuthMode} onLogout={logout}><main className="desk-page"><section className="student-dashboard-shell" id="student-desk"><aside className="student-sidebar"><div className="sidebar-profile"><div className="profile-logo">{(user.displayName || user.email || "S").slice(0, 1).toUpperCase()}</div><h3>{user.displayName || "Student"}</h3><p>{user.email}</p></div><nav className="dashboard-menu"><a className={view === "dashboard" ? "active" : ""} href={`${appBase}student-desk`}>Dashboard</a><a className={view === "resources" || view === "resource" ? "active" : ""} href={`${appBase}student-desk/resources`}>Resources</a><a className={view === "classes" ? "active" : ""} href={`${appBase}student-desk/classes`}>Classes</a><a className={view === "targets" || view === "target" ? "active" : ""} href={`${appBase}student-desk/targets`}>Targets</a><a href={appBase+"student-desk/notifications"}>Notifications</a><a href={appBase+"student-desk/notification-settings"}>Notification Settings</a></nav><a className="menu-link" href={`${appBase}contact`}>Contact support</a><div className="subscription-box"><span className="menu-label">Active access</span>{data?.access?.active ? data.access.planIds.map((planId) => <span className="status-pill" key={planId}>{planId}</span>) : <p>No active content access found.</p>}</div></aside><div className="student-dashboard-main"><div className="dashboard-topbar"><div><p className="eyebrow">Student Desk</p><h1 className="page-title">{view === "resource" ? resource?.title || "Resource" : view === "target" ? target?.title || "Target" : titleLabel(view)}</h1></div><button className="ghost-button" type="button" onClick={loadContent}>Refresh</button></div>{loadState === "loading" ? <article className="admin-empty-state"><h3>Loading student content</h3><p>Please wait while your plan and assignments are checked.</p></article> : loadState === "error" ? <AdminEmptyState title="Server request failed" text={message} onRetry={loadContent} /> : <>{view === "dashboard" && <div className="dashboard-view"><div className="desk-stats"><article className="stat-card"><span>Resources</span><strong>{resources.length}</strong></article><article className="stat-card"><span>Targets</span><strong>{targets.length}</strong></article><article className="stat-card"><span>Classes</span><strong>{classes.length}</strong></article></div><StudentResourceCards resources={resources} /><StudentTargetCards targets={targets} access={data?.access} /><StudentClassCards classes={classes} /></div>}{view === "resources" && <StudentResourceCards resources={resources} />}{view === "classes" && <StudentClassCards classes={classes} />}{view === "targets" && <StudentTargetCards targets={targets} access={data?.access} />}{view === "notifications" && <StudentNotificationsPage />}{view === "notification-settings" && <StudentNotificationSettings />}{view === "resource" && resource && <StudentResourceDetail resource={resource} />}{view === "target" && target && <StudentTargetDetail target={target} progress={data.progress} onSave={async (completedTaskIds) => { await updateStudentTargetProgress(target.id, { completedTaskIds }); await loadContent(); }} />}</>}</div></section></main>{authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={setUser} />}</Shell>;
 }
 
+function StudentNotificationsPage(){
+ const [filter,setFilter]=useState("all"),[page,setPage]=useState(1),[state,setState]=useState({loading:true,error:"",data:null});const size=20;
+ async function load(){setState(s=>({...s,loading:true,error:""}));try{const q={limit:100};if(filter==="unread")q.unread="1";else if(filter!=="all")q.type=filter.replace(/s$/,"");const r=await getStudentNotifications(q);setState({loading:false,error:"",data:r.notifications})}catch(e){setState({loading:false,error:e.message,data:null})}}
+ useEffect(()=>{load()},[filter]);const all=state.data?.items||[],items=all.slice((page-1)*size,page*size);
+ return <section className="notification-page"><header><h2>Notifications</h2><span>{state.data?.unreadCount||0} unread · {state.data?.total||0} total</span><button onClick={async()=>{await markAllStudentNotifications();load()}}>Mark all read</button><button onClick={load}>Refresh</button></header><nav className="notification-filters">{["all","unread","payments","subscriptions","targets","resources","classes","announcements"].map(x=><button className={filter===x?"active":""} onClick={()=>{setFilter(x);setPage(1)}} key={x}>{titleLabel(x)}</button>)}</nav>{state.loading?<AdminLoadingSkeleton/>:state.error?<AdminEmptyState title="Unable to load notifications" text={state.error} onRetry={load}/>:items.length?<div className="notification-records">{items.map(n=><article className={n.readAt?"":"unread"} key={n.id}><strong>{n.title}</strong><p>{n.message}</p><div className="meta-row"><span>{titleLabel(n.eventType)}</span><span>{formatDate(n.createdAt)}</span><span>{n.related?.planId||""}</span></div><button onClick={async()=>{await markStudentNotification(n.id);load()}}>Mark read</button><button onClick={async()=>{await markStudentNotification(n.id);routeTo(n.destination.startsWith("/")&&!n.destination.startsWith("//")?n.destination:"/student-desk")}}>Open</button></article>)}</div>:<AdminEmptyState title="No notifications" text="No notifications match this filter."/>}<div className="admin-pagination"><button disabled={page===1} onClick={()=>setPage(page-1)}>Previous</button><span>Page {page}</span><button disabled={page*size>=all.length} onClick={()=>setPage(page+1)}>Next</button></div></section>
+}
+function StudentNotificationSettings(){
+ const [data,setData]=useState(null),[message,setMessage]=useState("Loading settings...");
+ async function load(){try{setData(await getNotificationPreferences());setMessage("")}catch(e){setMessage(e.message)}}useEffect(()=>{load()},[]);
+ async function save(){setMessage("Saving...");try{const r=await saveNotificationPreferences(data.preferences);setData({...data,preferences:r.preferences});setMessage("Settings saved.")}catch(e){setMessage(e.message)}}
+ if(!data)return <AdminEmptyState title="Notification settings" text={message} onRetry={load}/>;const p=data.preferences;
+ return <section className="notification-settings"><h2>Notification settings</h2><h3>Transactional communication</h3>{["inApp","transactionalEmail","paymentNotifications","subscriptionNotifications","expiryReminders"].map(k=><label key={k}><input type="checkbox" checked={p[k]!==false} disabled={k==="inApp"||(["transactionalEmail"].includes(k)&&!data.providers.email.enabled)} onChange={e=>setData({...data,preferences:{...p,[k]:e.target.checked}})}/>{titleLabel(k)} {k==="inApp"?"— Available":k==="transactionalEmail"&&!data.providers.email.enabled?"— Configuration required":""}</label>)}<h3>Optional reminders and marketing</h3>{["whatsapp","telegram","targetReminders","resourceNotifications","classNotifications","announcements","marketing"].map(k=><label key={k}><input type="checkbox" checked={Boolean(p[k])} disabled={(k==="whatsapp"||k==="telegram")&&!data.providers[k].enabled} onChange={e=>setData({...data,preferences:{...p,[k]:e.target.checked}})}/>{titleLabel(k)} {(k==="whatsapp"||k==="telegram")&&!data.providers[k].enabled?"— Configuration required":""}</label>)}<p>WhatsApp notifications require an official business provider and your consent.</p><p>Connect Telegram after the official Delight Banking bot is configured.</p><button onClick={save}>Save settings</button>{message&&<p>{message}</p>}</section>
+}
 function StudentResourceCards({ resources = [] }) {
   return <div className="resource-list">{resources.length ? resources.map((item) => <article className="resource-item" key={item.id}><header><div><h3>{item.title}</h3><p>{item.description || "Published resource"}</p></div><span className="status-pill">{titleLabel(item.type)}</span></header><div className="meta-row"><span>{item.planLabels?.join(", ") || "Plan access"}</span><span>{formatDate(item.publishAt || item.updatedAt)}</span></div><a className="text-button" href={`${appBase}student-desk/resources/${encodeURIComponent(item.id)}`}>Open Resource</a></article>) : <article className="resource-item"><h3>No resources available</h3><p>Published resources for your active plan will appear here.</p></article>}</div>;
 }
@@ -747,6 +776,7 @@ const adminNavItems = [
   ["/admin/resources", "Resources", "resources.view"],
   ["/admin/targets", "Targets", "resources.view"],
   ["/admin/classes", "Classes", "resources.view"],
+  ["/admin/notifications", "Notifications", "notifications.view"],
   ["/admin/support", "Support", "support.view"],
   ["/admin/refunds", "Refunds", "refunds.view"],
   ["/admin/disputes", "Disputes", "payments.view"],
@@ -1367,6 +1397,17 @@ function downloadTextFile(filename, text, type = "text/csv") {
   URL.revokeObjectURL(url);
 }
 
+function downloadBlobFile(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function AdminPager({ page, pageSize, total, hasMore, onPage }) {
   return <div className="admin-pagination"><button className="ghost-button" type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button><span>Page {page} | {total} records</span><button className="ghost-button" type="button" disabled={!hasMore} onClick={() => onPage(page + 1)}>Next</button></div>;
 }
@@ -1640,6 +1681,7 @@ function AdminAccessDeniedPage({ message = "Administrative authorization is requ
 }
 
 function AdminPage({ path }) {
+  const notificationDetailMatch = path.match(/^\/admin\/notifications\/([^/]+)$/);
   const administratorDetailMatch = path.match(/^\/admin\/administrators\/([^/]+)$/);
   const userDetailMatch = path.match(/^\/admin\/users\/([^/]+)$/);
   const subscriptionDetailMatch = path.match(/^\/admin\/subscriptions\/([^/]+)$/);
@@ -1651,7 +1693,7 @@ function AdminPage({ path }) {
   const resourceDetailMatch = path.match(/^\/admin\/resources\/([^/]+)$/);
   const navItem = adminNavItems.find(([itemPath]) => itemPath === path);
   const activePath = administratorDetailMatch ? "/admin/administrators" : userDetailMatch ? "/admin/users" : subscriptionDetailMatch ? "/admin/subscriptions" : orderDetailMatch ? "/admin/orders" : transactionDetailMatch ? "/admin/transactions" : planNewMatch || planEditMatch || planDetailMatch ? "/admin/plans" : resourceDetailMatch ? "/admin/resources" : path;
-  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/plans" ? <AdminPlansPage admin={admin} /> : planNewMatch ? <AdminPlanEditorPage admin={admin} id="new" /> : planEditMatch ? <AdminPlanEditorPage admin={admin} id={decodeURIComponent(planEditMatch[1])} /> : planDetailMatch ? <AdminPlanDetailPage admin={admin} id={decodeURIComponent(planDetailMatch[1])} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : path === "/admin/support" ? <AdminSupportPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
+  return <AdminRouteGuard path={path}>{(admin) => <AdminLayout admin={admin} activePath={activePath}>{path === "/admin" ? <AdminOverview admin={admin} /> : path === "/admin/profile" ? <AdminProfilePage admin={admin} /> : path === "/admin/activity-logs" ? <AdminActivityLogsPage admin={admin} /> : path === "/admin/administrators" ? <AdminAdministratorsPage admin={admin} /> : path === "/admin/users" ? <AdminUsersPage admin={admin} /> : path === "/admin/subscriptions" ? <AdminSubscriptionsPage admin={admin} /> : path === "/admin/orders" ? <AdminOrdersPage admin={admin} /> : path === "/admin/transactions" ? <AdminTransactionsPage admin={admin} /> : path === "/admin/plans" ? <AdminPlansPage admin={admin} /> : planNewMatch ? <AdminPlanEditorPage admin={admin} id="new" /> : planEditMatch ? <AdminPlanEditorPage admin={admin} id={decodeURIComponent(planEditMatch[1])} /> : planDetailMatch ? <AdminPlanDetailPage admin={admin} id={decodeURIComponent(planDetailMatch[1])} /> : path === "/admin/resources" ? <AdminResourcesPage admin={admin} /> : path === "/admin/targets" ? <AdminTargetsPage admin={admin} /> : path === "/admin/classes" ? <AdminClassesPage admin={admin} /> : path === "/admin/notifications" ? <AdminNotificationsPage admin={admin} /> : notificationDetailMatch ? <AdminNotificationsPage admin={admin} id={decodeURIComponent(notificationDetailMatch[1])} /> : path === "/admin/support" ? <AdminSupportPage admin={admin} /> : administratorDetailMatch ? <AdminAdministratorDetailPage admin={admin} uid={decodeURIComponent(administratorDetailMatch[1])} /> : userDetailMatch ? <AdminUserDetailPage admin={admin} uid={decodeURIComponent(userDetailMatch[1])} /> : subscriptionDetailMatch ? <AdminSubscriptionDetailPage admin={admin} id={decodeURIComponent(subscriptionDetailMatch[1])} /> : orderDetailMatch ? <AdminOrderDetailPage admin={admin} id={decodeURIComponent(orderDetailMatch[1])} /> : transactionDetailMatch ? <AdminTransactionDetailPage admin={admin} id={decodeURIComponent(transactionDetailMatch[1])} /> : resourceDetailMatch ? <AdminResourceDetailPage admin={admin} id={decodeURIComponent(resourceDetailMatch[1])} /> : <AdminModulePlaceholder admin={admin} title={navItem?.[1] || "Admin Module"} permission={navItem?.[2] || "admin.dashboard.view"} />}</AdminLayout>}</AdminRouteGuard>;
 }
 function ContactPage() {
   const empty = { fullName: "", email: "", mobile: "", category: "general_enquiry", relatedPlan: "", subject: "", message: "", consent: false, website: "" };
@@ -1682,22 +1724,120 @@ function ContactPage() {
   return <Shell><main className="contact-page"><section className="section contact-layout"><article><p className="eyebrow">Contact Delight Banking</p><h1 className="page-title">How can we help?</h1><p>Ask about plans, subscriptions, payments, targets, classes, or technical access.</p><YouTubeLink /><p>For account-specific help, sign in first so your verified account can be attached automatically.</p></article><form className="premium-card contact-form" onSubmit={submit} noValidate><label>Full name<input value={form.fullName} onChange={(e) => update("fullName", e.target.value)} autoComplete="name" aria-invalid={Boolean(errors.fullName)} /></label>{errors.fullName && <small className="field-error">{errors.fullName}</small>}<label>Email address<input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} autoComplete="email" aria-invalid={Boolean(errors.email)} /></label>{errors.email && <small className="field-error">{errors.email}</small>}<label>Mobile number (optional)<input type="tel" value={form.mobile} onChange={(e) => update("mobile", e.target.value)} autoComplete="tel" /></label><label>Enquiry category<select value={form.category} onChange={(e) => update("category", e.target.value)}>{categories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Related plan (optional)<select value={form.relatedPlan} onChange={(e) => update("relatedPlan", e.target.value)}><option value="">No specific plan</option>{plans.map((plan) => <option key={plan.planId} value={plan.planId}>{plan.name}</option>)}</select></label><label>Subject<input value={form.subject} onChange={(e) => update("subject", e.target.value)} aria-invalid={Boolean(errors.subject)} /></label>{errors.subject && <small className="field-error">{errors.subject}</small>}<label>Message<textarea rows="6" value={form.message} onChange={(e) => update("message", e.target.value)} aria-invalid={Boolean(errors.message)} /></label>{errors.message && <small className="field-error">{errors.message}</small>}<label className="contact-honeypot" aria-hidden="true">Website<input tabIndex="-1" autoComplete="off" value={form.website} onChange={(e) => update("website", e.target.value)} /></label><label className="checkbox-row"><input type="checkbox" checked={form.consent} onChange={(e) => update("consent", e.target.checked)} /> I consent to Delight Banking using these details to respond to this enquiry.</label>{errors.consent && <small className="field-error">{errors.consent}</small>}<button className="primary-button full" type="submit" disabled={state.status === "loading"}>{state.status === "loading" ? "Submitting..." : "Submit enquiry"}</button>{state.status === "success" && <div className="form-message success" role="status"><p>{state.message}</p><strong>Reference ID: {state.referenceId}</strong></div>}{state.status === "error" && <div className="form-message" role="alert"><p>{state.message}</p><button className="ghost-button" type="submit">Retry</button></div>}</form></section></main></Shell>;
 }
 
+const RETRYABLE_DELIVERY_STATUSES = new Set(["failed", "retryable"]);
+function deliveryRetryState(delivery, provider, canManage, now = Date.now()) {
+  const attempts = Number(delivery.attemptNumber || 0);
+  const status = String(delivery.status || "").toLowerCase();
+  if (!canManage) return { allowed: false, reason: "" };
+  if (!provider?.enabled || status === "configuration_required") return { allowed: false, reason: "Delivery cannot be retried until this provider is configured." };
+  if (attempts >= 5) return { allowed: false, reason: "Maximum delivery attempts reached." };
+  if (["processing", "sent", "delivered", "available"].includes(status)) return { allowed: false, reason: "" };
+  const retryAt = delivery.nextRetryAt ? new Date(delivery.nextRetryAt).getTime() : 0;
+  if (retryAt > now) return { allowed: false, reason: `Retry available after ${formatDate(delivery.nextRetryAt)}.` };
+  return { allowed: RETRYABLE_DELIVERY_STATUSES.has(status), reason: "" };
+}
+
+function RetryDeliveryDialog({ delivery, recipient, busy, onCancel, onConfirm }) {
+  const cancelRef = useRef(null);
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    if (!delivery) return undefined;
+    cancelRef.current?.focus();
+    const handleKeys = (event) => {
+      if (event.key === "Escape" && !busy) onCancel();
+      if (event.key !== "Tab") return;
+      const controls = [...(dialogRef.current?.querySelectorAll("button:not(:disabled)") || [])];
+      if (!controls.length) return;
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKeys);
+    return () => document.removeEventListener("keydown", handleKeys);
+  }, [delivery, busy, onCancel]);
+  if (!delivery) return null;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={() => !busy && onCancel()}><section ref={dialogRef} className="confirmation-dialog notification-retry-dialog" role="dialog" aria-modal="true" aria-labelledby="retry-delivery-title" aria-describedby="retry-delivery-message" onMouseDown={(event) => event.stopPropagation()}><h3 id="retry-delivery-title">Retry {titleLabel(delivery.channel)} delivery?</h3><p id="retry-delivery-message">Send this {titleLabel(delivery.channel)} notification to {recipient || "the notification recipient"} again?</p><div className="form-actions"><button ref={cancelRef} className="ghost-button" type="button" disabled={busy} onClick={onCancel}>Cancel</button><button className="primary-button" type="button" disabled={busy} onClick={onConfirm}>{busy ? "Retrying..." : "Confirm retry"}</button></div></section></div>;
+}
+
+function AdminNotificationsPage({ admin, id = "" }) {
+  const [state, setState] = useState({ loading: true, error: "", data: null });
+  const [filters, setFilters] = useState({ q: "", eventType: "", status: "", page: 1, pageSize: 20 });
+  const [exportState, setExportState] = useState({ busy: false, message: "", error: false });
+  const [retryDelivery, setRetryDelivery] = useState(null);
+  const [retryState, setRetryState] = useState({ busy: false, message: "", error: false });
+  const retryButtonRefs = useRef({});
+  async function load() { setState((current) => ({ ...current, loading: true, error: "" })); try { setState({ loading: false, error: "", data: id ? await getAdminNotification(id) : await getAdminNotifications(filters) }); } catch (error) { setState({ loading: false, error: error.message, data: null }); } }
+  useEffect(() => { load(); }, [id, JSON.stringify(filters)]);
+  async function exportCsv() {
+    if (exportState.busy) return;
+    setExportState({ busy: true, message: "", error: false });
+    try {
+      const result = await exportAdminNotificationsCsv(filters);
+      downloadBlobFile(result.filename, result.blob);
+      setExportState({ busy: false, message: "CSV download started.", error: false });
+    } catch (error) { setExportState({ busy: false, message: error.message || "Could not export notifications.", error: true }); }
+  }
+  function closeRetryDialog() {
+    if (retryState.busy) return;
+    const channel = retryDelivery?.channel;
+    setRetryDelivery(null);
+    window.setTimeout(() => retryButtonRefs.current[channel]?.focus(), 0);
+  }
+  async function confirmRetry() {
+    if (!retryDelivery || retryState.busy) return;
+    const channel = retryDelivery.channel;
+    setRetryState({ busy: true, message: "", error: false });
+    try {
+      await retryAdminNotification(id, channel);
+      await load();
+      setRetryDelivery(null);
+      setRetryState({ busy: false, message: `${titleLabel(channel)} delivery retry scheduled.`, error: false });
+      window.setTimeout(() => retryButtonRefs.current[channel]?.focus(), 0);
+    } catch (error) { setRetryState({ busy: false, message: error.message || "Could not retry this delivery.", error: true }); }
+  }
+  if (state.loading && !state.data) return <AdminLoadingSkeleton />;
+  if (state.error) return <AdminEmptyState title="Notifications" text={state.error} onRetry={load} />;
+  if (id) {
+    const notification = state.data.notification;
+    const canManage = adminHasPermission(admin, "notifications.manage");
+    return <PermissionGate admin={admin} permission="notifications.view"><AdminBackButton to="/admin/notifications" label="Back to notifications" /><AdminPageHeader title={notification.title} eyebrow="Notification detail" admin={admin} /><section className="admin-card notification-detail"><dl className="student-details"><div><dt>ID</dt><dd>{notification.id}</dd></div><div><dt>Idempotency key</dt><dd>{notification.idempotencyKey}</dd></div><div><dt>Recipient</dt><dd>{notification.recipientEmail}<br />{notification.recipientUid}</dd></div><div><dt>Event</dt><dd>{notification.eventType}</dd></div><div><dt>Message</dt><dd>{notification.message}</dd></div><div><dt>Destination</dt><dd>{notification.destination}</dd></div><div><dt>Created/read</dt><dd>{formatDate(notification.createdAt)} / {formatDate(notification.readAt)}</dd></div></dl></section>{retryState.message && <p className={`form-message ${retryState.error ? "" : "success"}`} role={retryState.error ? "alert" : "status"}>{retryState.message}</p>}<section className="notification-delivery-list" aria-label="Delivery attempts">{state.data.deliveries.map((delivery) => { const eligibility = deliveryRetryState(delivery, state.data.providers?.[delivery.channel], canManage); return <article className="admin-card notification-delivery-card" key={delivery.id}><header><div><h2>{titleLabel(delivery.channel)}</h2><span>{delivery.provider || "Internal"}</span></div><AdminStatusBadge value={delivery.status} /></header><dl className="student-details"><div><dt>Channel</dt><dd>{titleLabel(delivery.channel)}</dd></div><div><dt>Provider</dt><dd>{delivery.provider === "resend" ? "Resend" : delivery.provider || "Internal"}</dd></div><div><dt>Recipient email</dt><dd>{delivery.recipientEmail || "Not applicable"}</dd></div><div><dt>Current status</dt><dd>{titleLabel(delivery.status)}</dd></div><div><dt>Attempt count</dt><dd>{Number(delivery.attemptNumber || 0)}</dd></div><div><dt>Maximum attempts</dt><dd>5</dd></div><div><dt>Last attempted</dt><dd>{formatDate(delivery.lastAttemptedAt || delivery.failedAt || delivery.sentAt || delivery.updatedAt || delivery.queuedAt)}</dd></div><div><dt>Next retry</dt><dd>{formatDate(delivery.nextRetryAt)}</dd></div><div><dt>Resend message ID</dt><dd>{delivery.providerMessageId ? <ShortValue value={delivery.providerMessageId} /> : "None"}</dd></div><div><dt>Safe failure code</dt><dd>{delivery.safeFailureCode || "None"}</dd></div><div><dt>Safe failure reason</dt><dd>{delivery.safeFailureMessage || "None"}</dd></div></dl>{eligibility.reason && <p className="delivery-retry-note">{eligibility.reason}</p>}{eligibility.allowed && <button ref={(element) => { retryButtonRefs.current[delivery.channel] = element; }} className="primary-button delivery-retry-button" type="button" disabled={retryState.busy} onClick={() => { setRetryState({ busy: false, message: "", error: false }); setRetryDelivery(delivery); }}>Retry</button>}</article>; })}</section><RetryDeliveryDialog delivery={retryDelivery} recipient={notification.recipientEmail || notification.recipientUid} busy={retryState.busy} onCancel={closeRetryDialog} onConfirm={confirmRetry} /></PermissionGate>;
+  }
+  const data = state.data.notifications;
+  const items = data.items || [];
+  return <PermissionGate admin={admin} permission="notifications.view"><AdminPageHeader title="Notifications" eyebrow="Delivery operations" admin={admin} /><section className="admin-card notification-filter-toolbar"><div className="admin-filter-grid"><label>Search<input value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value, page: 1 })} /></label><label>Event type<input value={filters.eventType} onChange={(event) => setFilters({ ...filters, eventType: event.target.value, page: 1 })} /></label><label>Status<input value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value, page: 1 })} /></label></div><div className="form-actions"><button className="ghost-button" type="button" onClick={() => setFilters({ q: "", eventType: "", status: "", page: 1, pageSize: 20 })}>Reset</button><button className="ghost-button notification-export-button" type="button" disabled={exportState.busy} onClick={exportCsv}>{exportState.busy ? "Exporting..." : "Export CSV"}</button></div></section>{exportState.message && <p className={`form-message ${exportState.error ? "" : "success"}`} role={exportState.error ? "alert" : "status"}>{exportState.message}</p>}{items.length ? <DetailTable title="Notification records" rows={items} columns={[{ key: "id", label: "ID", className: "admin-id-cell", render: (row) => <ShortValue value={row.id} /> }, { key: "recipientEmail", label: "Recipient" }, { key: "eventType", label: "Event" }, { key: "title", label: "Title" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }, { key: "id", label: "Action", render: (row) => <a href={appBase + "admin/notifications/" + encodeURIComponent(row.id)}>View</a> }]} /> : <AdminEmptyState title="No notifications" text="No records match these filters." />}<AdminPager {...data} onPage={(page) => setFilters({ ...filters, page })} /></PermissionGate>;
+}
 function AdminSupportPage({ admin }) {
   const [filters, setFilters] = useState({ q: "", category: "", status: "", start: "", end: "" });
   const [data, setData] = useState(null);
   const [message, setMessage] = useState("Loading enquiries...");
+  const [drafts, setDrafts] = useState({});
+  const [sending, setSending] = useState("");
   async function load() { setMessage("Loading enquiries..."); try { setData(await getAdminEnquiries(filters)); setMessage(""); } catch (error) { setMessage(error.message); } }
   useEffect(() => { load(); }, [JSON.stringify(filters)]);
   async function act(id, action, payload = {}) { try { await updateAdminEnquiry(id, action, payload); await load(); } catch (error) { setMessage(error.message); } }
-  function exportCsv() {
-    const rows = data?.enquiries?.items || [];
-    const csv = ["Reference,Name,Email,Category,Status,Subject,Created", ...rows.map((item) => [item.referenceId, item.fullName, item.email, item.category, item.status, item.subject, item.createdAt].map((value) => JSON.stringify(String(value || ""))).join(","))].join("\\n");
-    downloadTextFile("contact-enquiries.csv", csv);
+  async function sendReply(item) {
+    if (sending || !drafts[item.id]?.trim()) return;
+    setSending(item.id); setMessage("");
+    const replyId = globalThis.crypto?.randomUUID?.() || String(Date.now()) + "-" + Math.random().toString(36).slice(2);
+    try {
+      const result = await updateAdminEnquiry(item.id, "send_enquiry_reply", { reply: drafts[item.id], replyId });
+      setDrafts((current) => ({ ...current, [item.id]: "" }));
+      setMessage(["accepted", "sent"].includes(result.reply?.deliveryStatus) ? "Support reply accepted by Resend." : "Reply stored, but email status is " + titleLabel(result.reply?.deliveryStatus || "failed") + ".");
+      await load();
+    } catch (error) { setMessage(error.message || "Could not send the support reply."); }
+    finally { setSending(""); }
   }
-  const items = data?.enquiries?.items || [];
-  return <PermissionGate admin={admin} permission="support.view"><AdminPageHeader eyebrow="Support" title="Contact enquiries" description="Manage website contact requests without deleting historical records." admin={admin} /><section className="admin-card admin-management-toolbar"><div className="admin-filter-grid"><label>Search<input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label><label>Category<select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}><option value="">All categories</option><option value="plan_enquiry">Plan enquiry</option><option value="payment_help">Payment help</option><option value="subscription_help">Subscription help</option><option value="technical_problem">Technical problem</option></select></label><label>Status<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></label><label>Start<input type="date" value={filters.start} onChange={(e) => setFilters({ ...filters, start: e.target.value })} /></label><label>End<input type="date" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} /></label></div><button className="ghost-button" type="button" onClick={exportCsv}>Export CSV</button></section>{message ? <AdminEmptyState title="Contact enquiries" text={message} onRetry={load} /> : items.length ? <div className="resource-list">{items.map((item) => <article className="admin-card" key={item.id}><header><div><h3>{item.subject}</h3><p>{item.referenceId} · {item.fullName} · {item.email}</p></div><AdminStatusBadge value={item.status} /></header><p>{item.message}</p><div className="meta-row"><span>{titleLabel(item.category)}</span><span>{item.relatedPlan || "No plan"}</span><span>{formatDate(item.createdAt)}</span></div><div className="form-actions">{["open", "in_progress", "resolved", "closed"].map((status) => <button className="ghost-button" type="button" key={status} onClick={() => act(item.id, "mark_enquiry_" + status)}>Mark {titleLabel(status)}</button>)}<button className="ghost-button" type="button" onClick={() => act(item.id, "assign_enquiry")}>Assign to me</button><button className="ghost-button" type="button" onClick={() => { const note = window.prompt("Internal note"); if (note) act(item.id, "add_enquiry_note", { note }); }}>Add note</button></div></article>)}</div> : <AdminEmptyState title="No enquiries" text="No contact enquiries match these filters." />}</PermissionGate>;
+  async function retryReply(reply) {
+    if (sending || !reply.notificationId) return;
+    setSending(reply.replyId);
+    try { await retryAdminNotification(reply.notificationId, "email"); setMessage("Support email retry processed."); await load(); }
+    catch (error) { setMessage(error.message || "Could not retry the support email."); }
+    finally { setSending(""); }
+  }
+  function exportCsv() { const rows = data?.enquiries?.items || []; const csv = ["Reference,Name,Email,Category,Status,Subject,Created", ...rows.map((item) => [item.referenceId, item.fullName, item.email, item.category, item.status, item.subject, item.createdAt].map((value) => JSON.stringify(String(value || ""))).join(","))].join("\n"); downloadTextFile("contact-enquiries.csv", csv); }
+  const items = data?.enquiries?.items || [], canManage = adminHasPermission(admin, "support.manage");
+  return <PermissionGate admin={admin} permission="support.view"><AdminPageHeader eyebrow="Support" title="Contact enquiries" description="Manage website enquiries and Resend-backed replies. Direct mailbox replies are not synchronized into this history." admin={admin} /><section className="admin-card admin-management-toolbar"><div className="admin-filter-grid"><label>Search<input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label><label>Category<select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}><option value="">All categories</option><option value="plan_enquiry">Plan enquiry</option><option value="payment_help">Payment help</option><option value="subscription_help">Subscription help</option><option value="technical_problem">Technical problem</option></select></label><label>Status<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option><option value="open">Open</option><option value="pending">Pending</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></label><label>Start<input type="date" value={filters.start} onChange={(e) => setFilters({ ...filters, start: e.target.value })} /></label><label>End<input type="date" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} /></label></div><button className="ghost-button" type="button" onClick={exportCsv}>Export CSV</button></section>{message && <p className="form-message" role="status">{message}</p>}{items.length ? <div className="resource-list support-enquiry-list">{items.map((item) => <article className="admin-card support-enquiry-card" key={item.id}><header><div><h3>{item.subject}</h3><p>{item.referenceId} · {item.fullName} · {item.email}</p></div><AdminStatusBadge value={item.status} /></header><section className="support-original-message"><strong>Original enquiry</strong><p>{item.message}</p></section>{item.conversation?.length > 0 && <section className="support-conversation" aria-label={"Conversation for " + item.referenceId}><h4>Conversation history</h4>{item.conversation.map((reply) => <article key={reply.replyId}><header><strong>{reply.adminDisplayName || "Delight Banking support"}</strong><span>{formatDate(reply.createdAt)}</span></header><p>{reply.message}</p><div className="meta-row"><AdminStatusBadge value={reply.deliveryStatus} />{reply.providerMessageId && <span>Resend ID: <ShortValue value={reply.providerMessageId} /></span>}{reply.safeFailureMessage && <span>{reply.safeFailureMessage}</span>}</div>{canManage && reply.deliveryStatus === "failed" && <button className="ghost-button" type="button" disabled={Boolean(sending)} onClick={() => retryReply(reply)}>{sending === reply.replyId ? "Retrying..." : "Retry email"}</button>}</article>)}</section>}<div className="meta-row"><span>{titleLabel(item.category)}</span><span>{item.relatedPlan || "No plan"}</span><span>{formatDate(item.createdAt)}</span></div>{canManage && <><label className="support-reply-field">Reply<textarea rows="5" value={drafts[item.id] || ""} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))} placeholder={"Reply to " + item.email} /></label><button className="primary-button" type="button" disabled={Boolean(sending) || !drafts[item.id]?.trim()} onClick={() => sendReply(item)}>{sending === item.id ? "Sending..." : "Send reply"}</button><div className="form-actions">{["open", "pending", "resolved"].map((status) => <button className="ghost-button" type="button" key={status} onClick={() => act(item.id, "mark_enquiry_" + status)}>Mark {titleLabel(status)}</button>)}<button className="ghost-button" type="button" onClick={() => act(item.id, "assign_enquiry")}>Assign to me</button><button className="ghost-button" type="button" onClick={() => { const note = window.prompt("Internal note"); if (note) act(item.id, "add_enquiry_note", { note }); }}>Add note</button></div></>}</article>)}</div> : !message && <AdminEmptyState title="No enquiries" text="No contact enquiries match these filters." />}</PermissionGate>;
 }
-
 function Footer() {
   return <footer className="site-footer" id="contact"><div><Brand small="Student guidance for banking exams" /><p>Strategy, study targets, premium resources, and current affairs for serious banking aspirants.</p></div><div><h4>Plans</h4>{plans.slice(0, 4).map((plan) => <a href={`${appBase}#plans`} key={plan.planId}>{plan.name}</a>)}</div><div><h4>Platform</h4><a href={`${appBase}#strategy`}>Strategy</a><a href={`${appBase}#plans`}>Access Plans</a><a href={`${appBase}about`}>About Imran Sir</a><a href={`${appBase}student-desk`}>Student Desk</a><a href={`${appBase}privacy-policy`}>Privacy Policy</a></div><div><h4>Contact</h4><a href={`${appBase}contact`}>Contact form</a><YouTubeLink /><a href="mailto:support@delightguidance.com">support@delightguidance.com</a><span>India</span><span>Copyright {new Date().getFullYear()} Delight Banking</span><p className="developer-credit">Developed by <a href="mailto:darkdevil7325@gmail.com?subject=Delight%20Guidance%20Website%20Enquiry" title="Contact developer Arman" aria-label="Contact developer Arman">Arman</a></p></div></footer>;
 }

@@ -66,9 +66,10 @@ import {
   updatePlanVariant
 } from "../server/_lib/planManagement.js";
 import { handleError, method, readJson, sendJson } from "../server/_lib/http.js";
-import { getContactEnquiry, listContactEnquiries, updateContactEnquiry } from "../server/_lib/support.js";
+import { createTestNotification, exportAdminNotifications, getAdminNotification, listAdminNotifications, retryDelivery } from "../server/_lib/notifications.js";
+import { getContactEnquiry, listContactEnquiries, sendContactEnquiryReply, updateContactEnquiry } from "../server/_lib/support.js";
 
-const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes", "support"]);
+const RESOURCES = new Set(["me", "dashboard", "users", "administrators", "subscriptions", "orders", "transactions", "activity_logs", "exports", "plans", "resources", "targets", "classes", "support", "notifications"]);
 const ACTIONS = new Set([
   "update_admin_profile",
   "update_user",
@@ -130,6 +131,8 @@ const ACTIONS = new Set([
   "mark_enquiry_in_progress",
   "mark_enquiry_resolved",
   "mark_enquiry_closed",
+  "retry_delivery",
+  "send_enquiry_reply",
   "reopen_enquiry"
 ]);
 
@@ -267,6 +270,12 @@ async function handleGet(req, res, resource) {
     sendJson(res, 200, id ? await getAdminTarget(admin, id) : await listAdminTargets(admin, req.query || {}));
     return;
   }
+  if (resource === "notifications") {
+    const id = queryId(req, "notificationId");
+    if (req.query?.export === "csv") return sendCsv(res, await exportAdminNotifications(admin, req.query || {}));
+    sendJson(res, 200, id ? await getAdminNotification(admin, id) : await listAdminNotifications(admin, req.query || {}));
+    return;
+  }
   if (resource === "support") {
     const id = queryId(req, "enquiryId");
     sendJson(res, 200, id ? await getContactEnquiry(admin, id) : await listContactEnquiries(admin, req.query || {}));
@@ -310,6 +319,9 @@ async function handlePost(req, res) {
   if (action === "revoke_administrator") return sendJson(res, 200, await revokeAdministrator(req, cleanText(body.uid, 240), body));
 
   const admin = await requireAdmin(req);
+  if (action === "create_test_notification") return sendJson(res, 201, await createTestNotification(admin, body));
+  if (action === "retry_delivery") return sendJson(res, 200, await retryDelivery(admin, cleanText(body.notificationId, 240), cleanText(body.channel, 40)));
+  if (action === "send_enquiry_reply") return sendJson(res, 200, await sendContactEnquiryReply(admin, cleanText(body.enquiryId, 240), body));
   if (["assign_enquiry", "add_enquiry_note", "mark_enquiry_open", "mark_enquiry_in_progress", "mark_enquiry_resolved", "mark_enquiry_closed", "reopen_enquiry"].includes(action)) {
     const supportAction = action.replace(/_enquiry/, "").replace("assign", "assign").replace("add_note", "add_note");
     return sendJson(res, 200, await updateContactEnquiry(admin, cleanText(body.enquiryId, 240), { ...body, action: supportAction }));
