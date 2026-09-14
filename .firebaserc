@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "delight-banking",
+    "production": "delight-banking"
+  }
+}

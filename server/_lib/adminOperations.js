@@ -8,6 +8,7 @@ import { normalizeOrder as normalizeAdminOrder, normalizeSubscription as normali
 import { addCalendarMonths, syncOrderWithCashfree } from "./payments.js";
 import { readJson } from "./http.js";
 import { telegramConnectionStatus } from "./telegram.js";
+import { listAllAuthUsers, paginateRegisteredUsers, registrationSort } from "./adminUserOrdering.js";
 
 const MAX_READ = 750;
 const MAX_EXPORT = 1000;
@@ -194,7 +195,7 @@ async function getActivity(entityType, entityId, limit = 50) {
 }
 
 async function listAuthUsers() {
-  return (await getAuth(getAdminApp()).listUsers(1000)).users;
+  return listAllAuthUsers(getAuth(getAdminApp()));
 }
 
 function mergeUser(authUser, student = {}, subscriptions = []) {
@@ -217,11 +218,11 @@ export async function listUsers(admin, query) {
     if (query.subscriptionStatus === "active" && user.activeSubscriptionCount < 1) return false;
     if (query.subscriptionStatus === "none" && user.activeSubscriptionCount > 0) return false;
     if (query.plan && user.currentVariantId !== query.plan && user.currentPlan !== query.plan) return false;
-    if (!dateInRange(user.createdAt, query.start, query.end)) return false;
+    if (!dateInRange(user.registeredAtMs, query.start, query.end)) return false;
     return true;
   });
-  users.sort((a, b) => { const order = String(a.createdAt || "").localeCompare(String(b.createdAt || "")) || String(a.uid).localeCompare(String(b.uid)); return query.sort === "oldest" ? order : -order; });
-  return { users: paginate(users, query), filters: { plans } };
+  users = registrationSort(users, query.sort || "registered_desc");
+  return { users: paginateRegisteredUsers(users, query), filters: { plans } };
 }
 
 export async function searchVerifiedUser(admin, query) {

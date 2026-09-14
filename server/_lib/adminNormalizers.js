@@ -1,4 +1,5 @@
 import { getVariant, planSnapshot } from "./plans.js";
+import { registrationTimestamp } from "./adminUserOrdering.js";
 
 function toDate(value) {
   if (!value) return null;
@@ -90,18 +91,20 @@ export function normalizePlanVariant(data = {}) {
 export function normalizeUser(authUser, student = {}, subscriptions = []) {
   const activeSubs = subscriptions.filter((item) => item.userId === authUser.uid && item.status === "active");
   const current = [...activeSubs].sort((a, b) => String(b.accessEndAt || "").localeCompare(String(a.accessEndAt || "")))[0] || null;
+  const registeredAtMs = registrationTimestamp(authUser, student);
   return {
     uid: authUser.uid,
     id: authUser.uid,
     displayName: student.name || student.displayName || authUser.displayName || authUser.email || "Student",
     email: authUser.email || student.email || "",
-    phone: student.phone || authUser.phoneNumber || "",
+    phone: student.mobile || student.phone || authUser.phoneNumber || "",
     photoURL: student.photo || student.photoURL || authUser.photoURL || "",
     provider: authUser.providerData?.some((item) => item.providerId === "google.com") ? "google.com" : authUser.providerData?.some((item) => item.providerId === "password") ? "password" : student.provider || authUser.providerData?.[0]?.providerId || "unknown",
     emailVerified: Boolean(authUser.emailVerified || student.emailVerified),
     accountStatus: student.accountStatus || student.status || (authUser.disabled ? "blocked" : "active"),
     disabled: Boolean(authUser.disabled),
-    createdAt: authUser.metadata.creationTime || student.createdAt || null,
+    registeredAtMs,
+    createdAt: registeredAtMs === null ? null : new Date(registeredAtMs).toISOString(),
     lastSignInAt: authUser.metadata.lastSignInTime || student.lastSeenAt || null,
     lastWebsiteActivityAt: student.lastSeenAt || null,
     profileStatus: Boolean((student.fullName || student.name) && (student.mobile || student.phone)) ? "complete" : "incomplete",
