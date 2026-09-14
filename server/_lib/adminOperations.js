@@ -99,8 +99,8 @@ function contains(value, needle) {
 function dateInRange(value, start, end) {
   const date = toDate(value);
   if (!date) return !start && !end;
-  if (start && date < new Date(`${start}T00:00:00.000Z`)) return false;
-  if (end && date > new Date(`${end}T23:59:59.999Z`)) return false;
+  if (start && date < new Date(`${start}T00:00:00.000+05:30`)) return false;
+  if (end && date > new Date(`${end}T23:59:59.999+05:30`)) return false;
   return true;
 }
 
@@ -207,18 +207,20 @@ export async function listUsers(admin, query) {
   let users = authUsers.map((user) => mergeUser(user, students.get(user.uid) || {}, subscriptions));
   const q = cleanText(query.q || query.search || "", 120);
   users = users.filter((user) => {
-    if (q && ![user.displayName, user.email, user.phone].some((value) => contains(value, q))) return false;
+    if (q && ![user.displayName, user.email, user.phone, user.uid].some((value) => contains(value, q))) return false;
     if (query.provider && user.provider !== query.provider) return false;
     if (query.verified === "verified" && !user.emailVerified) return false;
     if (query.verified === "unverified" && user.emailVerified) return false;
     if (query.status && user.accountStatus !== query.status) return false;
+    if (query.profile === "complete" && user.profileStatus !== "complete") return false;
+    if (query.profile === "incomplete" && user.profileStatus === "complete") return false;
     if (query.subscriptionStatus === "active" && user.activeSubscriptionCount < 1) return false;
     if (query.subscriptionStatus === "none" && user.activeSubscriptionCount > 0) return false;
     if (query.plan && user.currentVariantId !== query.plan && user.currentPlan !== query.plan) return false;
     if (!dateInRange(user.createdAt, query.start, query.end)) return false;
     return true;
   });
-  users.sort((a, b) => query.sort === "oldest" ? String(a.createdAt || "").localeCompare(String(b.createdAt || "")) : String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  users.sort((a, b) => { const order = String(a.createdAt || "").localeCompare(String(b.createdAt || "")) || String(a.uid).localeCompare(String(b.uid)); return query.sort === "oldest" ? order : -order; });
   return { users: paginate(users, query), filters: { plans } };
 }
 
@@ -258,7 +260,7 @@ export async function getUserDetail(admin, uid) {
   return {
     user: mergeUser(authUser, studentSnap.exists ? studentSnap.data() : {}, subscriptions),
     profile: studentSnap.exists ? studentSnap.data() : {},
-    profileStatus: studentSnap.exists ? "complete" : "incomplete",
+    profileStatus: Boolean((studentSnap.data()?.fullName || studentSnap.data()?.name) && (studentSnap.data()?.mobile || studentSnap.data()?.phone)) ? "complete" : "incomplete",
     telegramConnection,
     subscriptions,
     orders: orderDocs.map((doc) => serializeOrder(doc.id, doc.data())),

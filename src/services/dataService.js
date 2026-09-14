@@ -116,7 +116,7 @@ export async function signInWithGoogle(options = {}) {
   return result.user;
 }
 
-export async function signInWithEmail(email, password, mode) {
+export async function signInWithEmail(email, password, mode, signupProfile = {}) {
   const fb = await getFirebase();
   if (!email || password.length < 6) {
     throw new Error("Enter email and minimum 6 character password.");
@@ -133,6 +133,11 @@ export async function signInWithEmail(email, password, mode) {
     ? fb.authModule.createUserWithEmailAndPassword
     : fb.authModule.signInWithEmailAndPassword;
   const result = await action(fb.auth, email, password);
+  if (mode === "signup") {
+    const fullName = String(signupProfile.fullName || "").trim();
+    if (fullName) await fb.authModule.updateProfile(result.user, { displayName: fullName });
+    await saveStudentProfile({ ...signupProfile, fullName });
+  }
   rememberStudent(result.user);
   return result.user;
 }
@@ -949,6 +954,8 @@ export async function updateAdminEnquiry(id, action, payload = {}) {
 export async function getStudentNotifications(params = {}) { return apiFetch(studentContentPath("notifications", params), { forceRefresh: false }); }
 export async function markStudentNotification(notificationId) { return studentContentPost("mark_notification", { notificationId }); }
 export async function markAllStudentNotifications() { return studentContentPost("mark_all_notifications"); }
+export async function getStudentProfile() { return apiFetch(studentContentPath("profile"), { forceRefresh: true }); }
+export async function saveStudentProfile(payload) { return studentContentPost("save_profile", payload); }
 export async function getNotificationPreferences() { return apiFetch(studentContentPath("notification_preferences"), { forceRefresh: false }); }
 export async function saveNotificationPreferences(payload) { return studentContentPost("save_notification_preferences", payload); }
 export async function connectTelegramNotifications() { return studentContentPost("connect_telegram"); }

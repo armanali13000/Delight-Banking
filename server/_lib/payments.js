@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { emitPaymentNotifications } from "./notifications.js";
 import { getDb, serverTimestamp } from "./firebaseAdmin.js";
 import { getCheckoutVariant, planSnapshot } from "./planManagement.js";
+import { requireCompleteProfile } from "./studentProfiles.js";
 import {
   createCashfreeOrder,
   fetchCashfreeOrder,
@@ -247,6 +248,8 @@ async function activateEntitlement(tx, db, orderRef, order, paymentId, source, p
 }
 
 export async function createOrderForVariant(user, variantId, billing = {}) {
+  const savedProfile = await requireCompleteProfile(user);
+  billing = { ...billing, name: savedProfile.fullName || savedProfile.name, phone: savedProfile.mobile || savedProfile.phone, address: billing.address || savedProfile.address };
   const selected = await getCheckoutVariant(variantId);
   if (!selected) {
     const error = new Error("Invalid or inactive plan variant.");

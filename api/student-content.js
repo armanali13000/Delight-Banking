@@ -16,9 +16,10 @@ import { submitContactEnquiry } from "../server/_lib/support.js";
 import { getPreferences, listUserNotifications, markNotifications, savePreferences } from "../server/_lib/notifications.js";
 import { requireUser } from "../server/_lib/firebaseAdmin.js";
 import { createTelegramConnectionLink, disconnectTelegram, handleTelegramWebhook, telegramConnectionStatus } from "../server/_lib/telegram.js";
+import { getStudentProfile, saveStudentProfile } from "../server/_lib/studentProfiles.js";
 
-const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans", "notifications", "notification_preferences", "telegram_webhook"]);
-const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class", "submit_contact", "mark_notification", "mark_all_notifications", "save_notification_preferences", "connect_telegram", "disconnect_telegram"]);
+const RESOURCES = new Set(["dashboard", "resources", "targets", "classes", "plans", "notifications", "notification_preferences", "profile", "telegram_webhook"]);
+const ACTIONS = new Set(["request_file_access", "record_resource_view", "record_download", "update_target_progress", "join_class", "submit_contact", "mark_notification", "mark_all_notifications", "save_notification_preferences", "connect_telegram", "disconnect_telegram", "save_profile"]);
 
 function cleanText(value, max = 240) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
@@ -43,6 +44,7 @@ function queryId(req, name = "id") {
 async function handleGet(req, res, resource) {
   if (resource === "notifications") return sendJson(res, 200, await listUserNotifications(req, req.query || {}));
   if (resource === "notification_preferences") return sendJson(res, 200, await getPreferences(req));
+  if (resource === "profile") return sendJson(res, 200, await getStudentProfile(req));
   if (resource === "plans") return sendJson(res, 200, { plans: await listEffectivePlans({ publicOnly: true }) });
   if (resource === "dashboard") return sendJson(res, 200, await getStudentContentDashboard(req));
   if (resource === "resources") {
@@ -64,6 +66,7 @@ async function handlePost(req, res) {
   if (action === "mark_notification") return sendJson(res, 200, await markNotifications(req, body));
   if (action === "mark_all_notifications") return sendJson(res, 200, await markNotifications(req, { all: true }));
   if (action === "save_notification_preferences") return sendJson(res, 200, await savePreferences(req, body));
+  if (action === "save_profile") return sendJson(res, 200, await saveStudentProfile(req, body));
   if (action === "connect_telegram") { const user = await requireUser(req); return sendJson(res, 200, { connection: await telegramConnectionStatus(user.uid), link: await createTelegramConnectionLink(user) }); }
   if (action === "disconnect_telegram") { const user = await requireUser(req); return sendJson(res, 200, await disconnectTelegram(user)); }
   if (action === "submit_contact") return sendJson(res, 201, await submitContactEnquiry(req, body));

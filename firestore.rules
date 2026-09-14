@@ -46,9 +46,8 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      allow read, update: if isOwner(studentId) || isAdmin();
-      allow create: if isOwner(studentId) || isAdmin();
-      allow delete: if isAdmin();
+      allow read: if isOwner(studentId) || isAdmin();
+      allow write: if false;
     }
 
     match /orders/{orderId} {
