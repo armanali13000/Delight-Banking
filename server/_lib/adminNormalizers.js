@@ -1,5 +1,6 @@
 import { getVariant, planSnapshot } from "./plans.js";
 import { registrationTimestamp } from "./adminUserOrdering.js";
+import { transactionTimestamp } from "./adminTransactionOrdering.js";
 
 function toDate(value) {
   if (!value) return null;
@@ -221,6 +222,7 @@ export function normalizeTransaction(id, data = {}, context = {}) {
   const verified = Boolean(data.verified);
   const webhookVerified = Boolean(data.webhookVerified);
   const linkedSubscription = context.subscription || null;
+  const transactionDate = transactionTimestamp(data, normalizedStatus, context.order || {});
   return {
     id,
     transactionId: id,
@@ -238,6 +240,7 @@ export function normalizeTransaction(id, data = {}, context = {}) {
     paymentMethod: data.paymentMethod || "Secure Payment",
     status: data.status || "pending",
     normalizedStatus,
+    ...transactionDate,
     cashfreeStatus: data.cashfreeStatus || data.status || "",
     verified,
     webhookVerified,

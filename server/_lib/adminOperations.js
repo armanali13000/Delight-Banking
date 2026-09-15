@@ -9,6 +9,7 @@ import { addCalendarMonths, syncOrderWithCashfree } from "./payments.js";
 import { readJson } from "./http.js";
 import { telegramConnectionStatus } from "./telegram.js";
 import { listAllAuthUsers, paginateRegisteredUsers, registrationSort } from "./adminUserOrdering.js";
+import { paginateTransactions, sortTransactions } from "./adminTransactionOrdering.js";
 
 const MAX_READ = 750;
 const MAX_EXPORT = 1000;
@@ -153,6 +154,13 @@ function findSubscriptionForPayment(payment, subscriptions) {
   return match ? serializeSubscription(match.id, match.data) : null;
 }
 
+function findOrderForPayment(payment, orders) {
+  const data = payment?.data || {};
+  const keys = [data.orderDocumentId, data.merchantOrderId, data.cashfreeOrderId].filter(Boolean);
+  const match = orders.find((order) => keys.some((key) => matchesAny(key, [order.id, order.data.internalOrderNumber, order.data.merchantOrderId, order.data.cashfreeOrderId])));
+  return match ? { id: match.id, ...match.data } : null;
+}
+
 async function getSubscriptions() {
   const db = getDb();
   const [subsSnap, ordersSnap, paymentsSnap] = await Promise.all([
@@ -170,7 +178,6 @@ async function getSubscriptions() {
     });
   });
 }
-
 async function getOrders() {
   const snap = await getDb().collection("orders").limit(MAX_READ).get();
   return snap.docs.map((doc) => serializeOrder(doc.id, doc.data()));
@@ -178,14 +185,18 @@ async function getOrders() {
 
 async function getPayments() {
   const db = getDb();
-  const [paymentsSnap, subsSnap] = await Promise.all([
-    db.collection("payments").limit(MAX_READ).get(),
-    db.collection("subscriptions").limit(MAX_READ).get()
+  const [paymentsSnap, subsSnap, ordersSnap] = await Promise.all([
+    db.collection("payments").get(),
+    db.collection("subscriptions").get(),
+    db.collection("orders").get()
   ]);
   const subscriptions = subsSnap.docs.map(rawDoc);
-  return paymentsSnap.docs.map((doc) => serializePayment(doc.id, doc.data(), { subscription: findSubscriptionForPayment(rawDoc(doc), subscriptions) }));
+  const orders = ordersSnap.docs.map(rawDoc);
+  return paymentsSnap.docs.map((doc) => serializePayment(doc.id, doc.data(), {
+    subscription: findSubscriptionForPayment(rawDoc(doc), subscriptions),
+    order: findOrderForPayment(rawDoc(doc), orders)
+  }));
 }
-
 async function getActivity(entityType, entityId, limit = 50) {
   const snap = await getDb().collection("adminActivityLogs").limit(250).get();
   return snap.docs.map((doc) => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt) }))
@@ -455,11 +466,11 @@ export async function listTransactions(admin, query) {
     if (q && ![item.id, item.cashfreePaymentId, item.cashfreeOrderId, item.internalOrderId, item.userEmail].some((value) => contains(value, q))) return false;
     if (query.status && item.normalizedStatus !== query.status) return false;
     if (query.plan && item.variantId !== query.plan && item.planId !== query.plan) return false;
-    if (!dateInRange(item.createdAt || item.capturedAt, query.start, query.end)) return false;
+    if (!dateInRange(item.transactionDateMs, query.start, query.end)) return false;
     return true;
   });
-  items.sort((a, b) => String(b.createdAt || b.capturedAt || "").localeCompare(String(a.createdAt || a.capturedAt || "")));
-  return { transactions: paginate(items, query), filters: { plans } };
+  items = sortTransactions(items, query.sort || "transaction_desc");
+  return { transactions: paginateTransactions(items, query), filters: { plans } };
 }
 
 export async function getTransactionDetail(admin, id) {
@@ -471,12 +482,15 @@ export async function getTransactionDetail(admin, id) {
   const rawPayment = rawDoc(snap);
   const paymentData = snap.data();
   const keys = [snap.id, paymentData.cashfreePaymentId, paymentData.cfPaymentId, paymentData.providerPaymentId, paymentData.orderDocumentId, paymentData.merchantOrderId, paymentData.cashfreeOrderId].filter(Boolean);
-  const [subsSnap, logs] = await Promise.all([
+  const orderDocumentId = paymentData.orderDocumentId || paymentData.merchantOrderId || "";
+  const [subsSnap, orderSnap, logs] = await Promise.all([
     db.collection("subscriptions").limit(MAX_READ).get(),
+    orderDocumentId ? db.collection("orders").doc(orderDocumentId).get().catch(() => null) : Promise.resolve(null),
     getActivity("transaction", id)
   ]);
   const linkedSubscription = findSubscriptionForPayment(rawPayment, subsSnap.docs.map(rawDoc));
-  const transaction = serializePayment(snap.id, paymentData, { subscription: linkedSubscription });
+  const linkedOrder = orderSnap?.exists ? { id: orderSnap.id, ...orderSnap.data() } : null;
+  const transaction = serializePayment(snap.id, paymentData, { subscription: linkedSubscription, order: linkedOrder });
   const timeline = [
     transaction.createdAt && { label: "Payment record created", at: transaction.createdAt },
     transaction.webhookVerified && { label: "Webhook signature verified", at: transaction.updatedAt || transaction.createdAt },
@@ -486,7 +500,6 @@ export async function getTransactionDetail(admin, id) {
   ].filter(Boolean);
   return { transaction, subscription: linkedSubscription, lookupKeys: keys, timeline, activity: logs };
 }
-
 export async function reconcileTransaction(admin, id) {
   assertPermission(admin, "payments.reconcile");
   const db = getDb();
